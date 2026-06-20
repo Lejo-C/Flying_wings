@@ -1,0 +1,35 @@
+# =======================================================
+# FlyWings - Anti-UAS Prototype Gitignore
+# =======================================================
+
+# Dependencies
+node_modules/
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+
+# IDEs and System
+.vscode/
+.idea/
+.DS_Store
+__pyrefly_virtual__/
+
+# Training & Large Datasets (CRITICAL: 45GB DroneRF Data)
+backend/training/dataset/
+backend/training/models/
+*.rar
+*.zip
+*.csv
+*.npy
+
+# Docker & Database
+data/
+*.db
+*.sqlite3
+
+# Models & Outputs
+*.onnx
+*.pth
+*.pt
