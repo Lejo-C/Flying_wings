@@ -1,0 +1,19 @@
+# Ignore massive datasets and training scripts during production container build
+training/dataset/
+training/models/
+*.csv
+*.rar
+*.zip
+*.npy
+
+# Python Cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Database mounts (prevent overriding persistent data)
+data/
+*.sqlite3
+*.db

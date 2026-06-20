@@ -21,8 +21,8 @@ class DroneRFDataset(Dataset):
     """
     def __init__(self, data_dir, is_train=True):
         super().__init__()
-        # Recursively find all CSV files in the extracted dataset
-        self.files = glob.glob(os.path.join(data_dir, '**', '*.csv'), recursive=True)
+        # Look for the highly-optimized binary numpy files instead of raw text CSVs!
+        self.files = glob.glob(os.path.join(data_dir, '**', '*.npy'), recursive=True)
         
         # MOCKUP labels based on the DroneRF dataset folder names
         self.labels = []
@@ -63,13 +63,12 @@ class DroneRFDataset(Dataset):
     def __getitem__(self, idx):
         # 1. Load actual data from disk
         if len(self.files) > 0:
-            # DroneRF stores complex signals in massive CSV formats.
-            # Loading the whole CSV will trigger Linux OOM Killer. We only take the first 8192 samples per file.
-            raw_data = np.genfromtxt(self.files[idx], delimiter=',', max_rows=8192)
+            # Load the binary .npy file instantly! (Takes milliseconds instead of minutes)
+            raw_data = np.load(self.files[idx])
             
-            # Usually DroneRF CSVs have multiple columns, we flatten or take the first series
-            # Or if it's a 1D array of floats:
-            iq_data = raw_data.flatten()
+            # The data is already flattened by our converter script, but we rigidly enforce 
+            # the size during loading so we don't blow up the GPU RAM during STFT math.
+            iq_data = raw_data[:100000]
             
             # If the CSV doesn't have complex numbers explicitly (just real), we spoof the imaginary part 
             # for the sake of the math transforms, or load it properly if it's separated.
@@ -120,8 +119,8 @@ def train_model():
     dataset_path = os.path.join(script_dir, 'dataset', 'train')
     
     train_dataset = DroneRFDataset(data_dir=dataset_path)
-    # CRITICAL: Reduced batch_size to 4 and num_workers to 0 to prevent RAM Overflow
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=0)
+    # Because binary .npy files are so memory efficient, we can safely max out the GPU!
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=2)
 
     # 2. Setup Model & Optimizer
     model = build_model(num_classes=3).to(device)
@@ -148,7 +147,7 @@ def train_model():
             
             running_loss += loss.item()
             
-            # Print every single batch so the UI isn't "still"
+            # Print every single batch so we can watch it fly!
             if batch_idx % 1 == 0:
                 print(f"Epoch [{epoch+1}/{EPOCHS}] Batch [{batch_idx+1}/{len(train_loader)}] Loss: {loss.item():.4f}")
                 
