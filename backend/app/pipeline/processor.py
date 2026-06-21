@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import scipy.signal as signal
+import scipy.ndimage as ndimage
 import onnxruntime as ort
 import logging
 import io
@@ -10,7 +11,7 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "mobilenetv3_small_int8.onnx")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "competition_model.onnx")
 
 # Rolling 5-frame buffer for Temporal Smoothing HMM Filter
 TEMPORAL_BUFFER = []
@@ -40,9 +41,15 @@ def phase_1_ingestion(file_chunk: bytes):
     Dynamically reads the uploaded CSV/NPY bundle from the UI into a numpy array.
     """
     try:
-        # Load the uploaded file bytes as a CSV using Pandas memory buffer
-        df = pd.read_csv(io.BytesIO(file_chunk), header=None, nrows=8192)
-        raw_data = df.values.flatten()
+        # Check if the uploaded file is a highly compressed .npy binary
+        if file_chunk.startswith(b'\x93NUMPY'):
+            raw_data = np.load(io.BytesIO(file_chunk))
+        else:
+            # Otherwise, assume it is a raw CSV from the internet
+            df = pd.read_csv(io.BytesIO(file_chunk), header=None, nrows=8192)
+            raw_data = df.values
+            
+        raw_data = raw_data.flatten()
         iq_data = raw_data[:4096]
         
         # If it doesn't contain explicit imaginary components, spoof it for the math transforms
@@ -52,8 +59,8 @@ def phase_1_ingestion(file_chunk: bytes):
         return iq_data
     except Exception as e:
         logger.error(f"Error parsing uploaded signal bundle: {e}")
-        # Fallback to dummy data if upload is corrupted
-        return np.random.randn(4096) + 1j * np.random.randn(4096)
+        # If the file is a text file or corrupted, throw a hard error so the UI knows it failed
+        raise ValueError(f"Invalid signal bundle format. Cannot parse IQ data. Details: {e}")
 
 def phase_2_feature_mapping(iq_data: np.ndarray) -> np.ndarray:
     """
@@ -69,12 +76,25 @@ def phase_2_feature_mapping(iq_data: np.ndarray) -> np.ndarray:
     phase = np.angle(iq_data)
     phase_diff = np.diff(phase, prepend=phase[0])
     
-    # Channel 3: Cyclic Spectral Density (CSD)
-    # Placeholder for standard cyclic autocorrelation
-    csd = np.abs(np.correlate(iq_data, iq_data, mode='same'))
+    # Channel 3: Cyclic Spectral Density (CSD) disabled for performance
+
+    # ACTUALLY map the spectrogram to the AI! 
+    # The prototype was passing random noise to the AI. We must resize the STFT.
+    zoom_y = 224 / stft_mag.shape[0]
+    zoom_x = 224 / stft_mag.shape[1]
     
-    # Dummy resize to target (1, 3, 224, 224) for MobileNetV3
-    tensor = np.random.random((1, 3, 224, 224)).astype(np.float32)
+    # Resize to 224x224 using fast bilinear interpolation
+    resized_stft = ndimage.zoom(stft_mag, (zoom_y, zoom_x))
+    
+    # Normalize pixel values to [0, 1] range for the neural network
+    tensor_min = np.min(resized_stft)
+    tensor_max = np.max(resized_stft)
+    resized_stft = (resized_stft - tensor_min) / (tensor_max - tensor_min + 1e-9)
+    
+    # Stack into 3 channels (RGB) to match MobileNetV3 expected input shape: (1, 3, 224, 224)
+    tensor = np.stack([resized_stft, resized_stft, resized_stft])
+    tensor = np.expand_dims(tensor, axis=0).astype(np.float32)
+    
     return tensor
 
 def phase_3_onnx_inference(tensor: np.ndarray):

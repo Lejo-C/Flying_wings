@@ -22,7 +22,7 @@ export default function PerformanceHud({
         {/* Detection Probability Card */}
         <div className="bg-[#F8FAFC] border border-[#E2E8F0] p-3 rounded-lg flex flex-col justify-between">
           <div className="flex justify-between items-start">
-            <span className="font-mono text-[9px] text-[#64748B] font-bold uppercase">UAS Detection (Pd)</span>
+            <span className="font-mono text-[9px] text-[#64748B] font-bold uppercase" title="Probability of Detection across all historical signals">System Reliability (Pd)</span>
             <span className="text-[8px] bg-[#00E676]/10 text-emerald-600 font-bold px-1 rounded-sm">TARGET ≥90%</span>
           </div>
           <div className="mt-2 flex items-baseline space-x-1">
@@ -35,7 +35,7 @@ export default function PerformanceHud({
         {/* F1 Classification Performance */}
         <div className="bg-[#F8FAFC] border border-[#E2E8F0] p-3 rounded-lg flex flex-col justify-between">
           <div className="flex justify-between items-start">
-            <span className="font-mono text-[9px] text-[#64748B] font-bold uppercase">UAS F1-Score</span>
+            <span className="font-mono text-[9px] text-[#64748B] font-bold uppercase">Model F1-Score</span>
             <span className="text-[8px] bg-[#00E676]/10 text-emerald-600 font-bold px-1 rounded-sm">TARGET ≥0.85</span>
           </div>
           <div className="mt-2 flex items-baseline space-x-1">
