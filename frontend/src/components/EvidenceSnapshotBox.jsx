@@ -1,146 +1,124 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Target, Layers, Download, Compass, HelpCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Target, Layers, Download, Compass, HelpCircle, AlertTriangle, ShieldCheck, Activity } from 'lucide-react';
 
 export default function EvidenceSnapshotBox({ selectedAlert }) {
-  const [activeTab, setActiveTab] = useState('red'); // 'red' | 'green' | 'blue'
-  const canvasRef = useRef(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0, show: false });
+  const [activeTab, setActiveTab] = useState('spectrogram'); // 'spectrogram' | 'breakdown' | 'similarity'
 
-  useEffect(() => {
-    if (!selectedAlert || !canvasRef.current) return;
+  const BACKEND_URL = 'http://localhost:8000';
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width = 320;
-    const height = canvas.height = 160;
+  const renderSpectrogramTab = () => {
+    if (!selectedAlert.evidencePath) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[#CBD5E1] rounded-lg bg-[#F8FAFC]">
+          <AlertTriangle className="w-8 h-8 text-amber-500 mb-2" />
+          <span className="font-sans text-xs text-[#64748B] font-bold uppercase">No Spectrogram Image Found</span>
+        </div>
+      );
+    }
 
-    // Draw dark background inside visualizer to keep heatmap color clarity
-    ctx.fillStyle = '#0F172A';
-    ctx.fillRect(0, 0, width, height);
+    const imgUrl = `${BACKEND_URL}/${selectedAlert.evidencePath}`;
 
-    const drawHeatmap = () => {
-      const imgData = ctx.createImageData(width, height);
-      const isUas = selectedAlert.category === 'UAS-like';
-      const isNonUas = selectedAlert.category === 'Non-UAS';
-      
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const pixelIdx = (y * width + x) * 4;
-          const nx = (x / width) * 2 - 1;
-          const ny = (y / height) * 2 - 1;
-          
-          let intensity = 0;
-
-          if (isUas) {
-            if (activeTab === 'red') {
-              const comb = Math.abs(Math.sin(nx * 12)) * 0.4;
-              const envelope = Math.max(0, 1 - Math.abs(nx * 1.5));
-              const noise = Math.random() * 0.15;
-              const pulses = Math.max(0, Math.sin(ny * 8 + nx * 4)) * 0.35;
-              intensity = (comb * envelope + pulses + noise) * 1.1;
-            } else if (activeTab === 'green') {
-              const phaseLines = Math.sin(nx * 20 + ny * 10) * 0.5 + 0.5;
-              const envelope = Math.max(0, 1 - Math.abs(nx * 1.2));
-              const noise = Math.random() * 0.15;
-              intensity = (phaseLines * envelope + noise);
-            } else {
-              const nodeX = Math.abs(Math.sin(nx * 8)) > 0.85 ? 1 : 0.1;
-              const nodeY = Math.abs(Math.sin(ny * 8)) > 0.85 ? 1 : 0.1;
-              const envelope = Math.max(0, 1 - (nx * nx + ny * ny) * 0.8);
-              const noise = Math.random() * 0.1;
-              intensity = (nodeX * nodeY * envelope + noise) * 1.3;
-            }
-          } else if (isNonUas) {
-            if (activeTab === 'red') {
-              const wifiDome = Math.abs(nx) < 0.6 ? 0.75 : Math.max(0, 0.75 - (Math.abs(nx) - 0.6) * 4);
-              const noise = Math.random() * 0.12;
-              intensity = (wifiDome * 0.8 + noise);
-            } else if (activeTab === 'green') {
-              intensity = (Math.random() * 0.7 + (1 - Math.abs(nx)) * 0.25);
-            } else {
-              const line = Math.max(0, 1 - Math.abs(nx) * 15);
-              const noise = Math.random() * 0.15;
-              intensity = (line * 0.7 + noise);
-            }
-          } else {
-            const blobs = Math.sin(nx * 4) * Math.cos(ny * 4) * 0.3 + 0.35;
-            const noise = Math.random() * 0.35;
-            intensity = (blobs + noise);
-          }
-
-          intensity = Math.min(1.0, Math.max(0, intensity));
-
-          if (activeTab === 'red') {
-            imgData.data[pixelIdx] = Math.floor(intensity * 255);
-            imgData.data[pixelIdx + 1] = Math.floor(Math.max(0, intensity - 0.4) * 200);
-            imgData.data[pixelIdx + 2] = Math.floor(Math.max(0, intensity - 0.7) * 255);
-            imgData.data[pixelIdx + 3] = 255;
-          } else if (activeTab === 'green') {
-            imgData.data[pixelIdx] = Math.floor(Math.max(0, intensity - 0.8) * 150);
-            imgData.data[pixelIdx + 1] = Math.floor(intensity * 230);
-            imgData.data[pixelIdx + 2] = Math.floor(Math.max(0, intensity - 0.5) * 180);
-            imgData.data[pixelIdx + 3] = 255;
-          } else {
-            imgData.data[pixelIdx] = Math.floor(Math.max(0, intensity - 0.7) * 255);
-            imgData.data[pixelIdx + 1] = Math.floor(Math.max(0, intensity - 0.25) * 210);
-            imgData.data[pixelIdx + 2] = Math.floor(intensity * 255);
-            imgData.data[pixelIdx + 3] = 255;
-          }
-        }
-      }
-
-      ctx.putImageData(imgData, 0, 0);
-
-      // Grid overlays
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 1;
-      
-      for (let i = 1; i < 8; i++) {
-        const x = (i / 8) * width;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-      }
-
-      for (let i = 1; i < 6; i++) {
-        const y = (i / 6) * height;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-
-      // Corners target markers
-      ctx.strokeStyle = isUas ? '#FF1744' : '#7D83FF';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(10, 10); ctx.lineTo(25, 10);
-      ctx.moveTo(10, 10); ctx.lineTo(10, 25);
-      ctx.moveTo(width - 10, 10); ctx.lineTo(width - 25, 10);
-      ctx.moveTo(width - 10, 10); ctx.lineTo(width - 10, 25);
-      ctx.stroke();
-    };
-
-    drawHeatmap();
-
-  }, [selectedAlert, activeTab]);
-
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    // Normalize coordinates
-    const normX = ((x / canvas.width) * 2 - 1).toFixed(3);
-    const normY = ((1 - (y / canvas.height)) * 2 - 1).toFixed(3);
-    setMousePos({ x: normX, y: normY, show: true, pxX: x, pxY: y });
+    return (
+      <div className="space-y-3">
+        {/* Heatmap Image Container */}
+        <div className="relative border border-[#E2E8F0] rounded-lg overflow-hidden bg-[#0F172A] flex justify-center items-center">
+          <img 
+            src={imgUrl} 
+            alt="RF Spectrogram Plot" 
+            className="w-full max-h-[160px] object-contain block"
+            onError={(e) => {
+              // fallback if server fails
+              e.target.style.display = 'none';
+              e.target.nextSibling.style.display = 'flex';
+            }}
+          />
+          <div style={{ display: 'none' }} className="w-full h-[160px] flex-col items-center justify-center bg-[#0F172A] text-white font-mono text-[10px]">
+            <span>LOADING ERROR OR EXPIRED FILE</span>
+          </div>
+        </div>
+        <div className="text-[9px] font-mono text-[#64748B] text-center uppercase tracking-wide">
+          Real RF Heatmap // Resized to 320x160 bilinear 
+        </div>
+      </div>
+    );
   };
 
-  const handleMouseLeave = () => {
-    setMousePos(prev => ({ ...prev, show: false }));
+  const renderBreakdownTab = () => {
+    const bd = selectedAlert.latency_breakdown || {
+      loading: 0,
+      preprocessing: 0,
+      spectrogram: 0,
+      onnx: 0,
+      postprocessing: 0,
+      total: 0
+    };
+
+    const items = [
+      { name: "Dataset Loading Time", val: bd.loading },
+      { name: "Preprocessing (DC & Normalization) Time", val: bd.preprocessing },
+      { name: "Spectrogram (STFT & Resize) Gen Time", val: bd.spectrogram },
+      { name: "ONNX MobileNetV3 Inference Time", val: bd.onnx },
+      { name: "Postprocessing (Temporal Voting) Time", val: bd.postprocessing },
+    ];
+
+    return (
+      <div className="space-y-2 font-mono text-[10px] text-[#334155]">
+        <span className="block font-sans text-[10px] text-[#64748B] font-extrabold tracking-wider uppercase mb-1">
+          Detailed Latency Breakdown (ms)
+        </span>
+        <div className="border border-[#E2E8F0] bg-[#F8FAFC] p-3 rounded-lg divide-y divide-[#E2E8F0] space-y-1.5">
+          {items.map((item, i) => (
+            <div key={i} className="flex justify-between pt-1.5 first:pt-0">
+              <span className="text-[#64748B]">{item.name}:</span>
+              <span className="font-bold text-[#0F172A]">{item.val.toFixed(2)} ms</span>
+            </div>
+          ))}
+          <div className="flex justify-between pt-2 border-t border-[#CBD5E1] font-bold text-xs text-[#7D83FF]">
+            <span>Total End-to-End Latency:</span>
+            <span>{bd.total.toFixed(2)} ms</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSimilarityTab = () => {
+    const matches = selectedAlert.similar_matches || [];
+
+    if (matches.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-6 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] text-center font-mono text-[10px] text-[#64748B]">
+          <ShieldCheck className="w-8 h-8 text-emerald-500 mb-2" />
+          <span className="font-sans text-xs font-bold text-emerald-600 uppercase mb-0.5">Unique Signature</span>
+          <span>No historical re-occurrence matched &gt; 80%.</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <span className="block font-sans text-[10px] text-[#64748B] font-extrabold tracking-wider uppercase mb-1">
+          Re-occurrence Cosine Similarity Search
+        </span>
+        <div className="space-y-2">
+          {matches.map((match, i) => (
+            <div key={i} className="border border-[#E2E8F0] bg-[#F8FAFC] p-2.5 rounded-lg font-mono text-[10px] hover:border-[#7D83FF] transition">
+              <div className="flex justify-between items-center mb-1">
+                <span className="font-bold text-[#7D83FF] text-[10.5px]">Match #{i+1} // {match.event_id.slice(0,8)}</span>
+                <span className="bg-[#7D83FF]/15 text-[#7D83FF] font-bold px-1.5 py-0.5 rounded text-[9.5px]">
+                  SIMILARITY: {(match.similarity * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-2 text-[#64748B] text-[9.5px]">
+                <div>Freq: <span className="text-[#0F172A] font-bold">{match.center_freq.toFixed(1)} MHz</span></div>
+                <div>BW: <span className="text-[#0F172A] font-bold">{match.bandwidth.toFixed(1)} MHz</span></div>
+                <div className="col-span-2 mt-0.5">Logged: <span className="text-[#0F172A] font-bold">{new Date(match.timestamp).toLocaleString()}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -149,7 +127,7 @@ export default function EvidenceSnapshotBox({ selectedAlert }) {
         <div className="flex items-center space-x-2">
           <Target className="w-4.5 h-4.5 text-[#7D83FF]" />
           <span className="font-sans text-xs font-extrabold text-[#0F172A] tracking-wider uppercase">
-            Evidence Snapshot & Summary Features
+            Evidence Snapshot & Signature Matching
           </span>
         </div>
       </div>
@@ -164,116 +142,84 @@ export default function EvidenceSnapshotBox({ selectedAlert }) {
       ) : (
         <div className="space-y-4">
           
-          {/* Channel Selector Tab Switcher */}
+          {/* Tab Switcher */}
           <div className="flex bg-[#F1F5F9] p-0.5 rounded-lg text-[10px] font-sans font-bold">
             <button
-              onClick={() => setActiveTab('red')}
+              onClick={() => setActiveTab('spectrogram')}
               className={`flex-1 py-1.5 px-2 text-center rounded-md transition ${
-                activeTab === 'red'
-                  ? 'bg-white text-[#FF1744] border border-[#FF1744]/20 shadow-sm'
+                activeTab === 'spectrogram'
+                  ? 'bg-white text-[#7D83FF] border border-[#7D83FF]/10 shadow-sm'
                   : 'text-[#64748B] hover:text-[#0F172A]'
               }`}
             >
-              LOG-MAG [RED]
+              SPECTROGRAM EVIDENCE
             </button>
             <button
-              onClick={() => setActiveTab('green')}
+              onClick={() => setActiveTab('breakdown')}
               className={`flex-1 py-1.5 px-2 text-center rounded-md transition ${
-                activeTab === 'green'
-                  ? 'bg-white text-emerald-600 border border-emerald-500/20 shadow-sm'
+                activeTab === 'breakdown'
+                  ? 'bg-white text-[#7D83FF] border border-[#7D83FF]/10 shadow-sm'
                   : 'text-[#64748B] hover:text-[#0F172A]'
               }`}
             >
-              DIFF PHASE [GREEN]
+              LATENCY BREAKDOWN
             </button>
             <button
-              onClick={() => setActiveTab('blue')}
+              onClick={() => setActiveTab('similarity')}
               className={`flex-1 py-1.5 px-2 text-center rounded-md transition ${
-                activeTab === 'blue'
-                  ? 'bg-white text-[#7D83FF] border border-[#7D83FF]/20 shadow-sm'
+                activeTab === 'similarity'
+                  ? 'bg-white text-[#7D83FF] border border-[#7D83FF]/10 shadow-sm'
                   : 'text-[#64748B] hover:text-[#0F172A]'
               }`}
             >
-              CYCLIC CSD [BLUE]
+              PREVIOUS MATCHES
             </button>
           </div>
 
-          {/* Heatmap Canvas */}
-          <div className="relative border border-[#E2E8F0] rounded-lg overflow-hidden bg-[#0F172A]">
-            <canvas
-              ref={canvasRef}
-              onMouseMove={handleMouseMove}
-              onMouseLeave={handleMouseLeave}
-              className="w-full h-[160px] block cursor-crosshair"
-            />
-
-            {mousePos.show && (
-              <>
-                {/* Horizontal guide */}
-                <div 
-                  className="absolute left-0 right-0 border-t border-dashed border-white/20 pointer-events-none" 
-                  style={{ top: `${mousePos.pxY}px` }}
-                />
-                {/* Vertical guide */}
-                <div 
-                  className="absolute top-0 bottom-0 border-l border-dashed border-white/20 pointer-events-none" 
-                  style={{ left: `${mousePos.pxX}px` }}
-                />
-                {/* Reticle Lock Coordinate Display */}
-                <div 
-                  className="absolute bg-[#0F172A] border border-[#334155] text-[9px] font-mono text-white px-2 py-1 rounded shadow-md pointer-events-none"
-                  style={{ 
-                    left: `${Math.min(mousePos.pxX + 12, 210)}px`, 
-                    top: `${Math.min(mousePos.pxY + 12, 110)}px` 
-                  }}
-                >
-                  <div className="text-[#7D83FF] font-bold">RF LOCK COORDS</div>
-                  <div>f_norm: {mousePos.x}</div>
-                  <div>τ_delay: {mousePos.y} μs</div>
-                </div>
-              </>
-            )}
-          </div>
+          {/* Render Active Tab */}
+          {activeTab === 'spectrogram' && renderSpectrogramTab()}
+          {activeTab === 'breakdown' && renderBreakdownTab()}
+          {activeTab === 'similarity' && renderSimilarityTab()}
 
           {/* Event Metadata Summary Features */}
           <div className="space-y-2">
-            <span className="block font-mono text-[10px] text-[#64748B] font-bold tracking-wider uppercase">
+            <span className="block font-mono text-[9px] text-[#64748B] font-bold tracking-wider uppercase">
               Extraction Summary Features
             </span>
-            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono border border-[#E2E8F0] bg-[#F8FAFC] p-3 rounded-lg">
+            <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono border border-[#E2E8F0] bg-[#F8FAFC] p-3 rounded-lg">
               
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-[#64748B]">Center Freq:</span>
-                  <span className="text-[#0F172A] font-bold">{selectedAlert.centerFreq.toFixed(2)} MHz</span>
+                  <span className="text-[#0F172A] font-bold">{selectedAlert.centerFreq.toFixed(1)} MHz</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#64748B]">Bandwidth:</span>
                   <span className="text-[#0F172A] font-bold">{selectedAlert.bandwidth.toFixed(1)} MHz</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#64748B]">Peak SNR:</span>
-                  <span className="text-emerald-600 font-bold">N/A</span>
+                  <span className="text-[#64748B]">Sample Rate:</span>
+                  <span className="text-[#0F172A] font-bold">{(selectedAlert.sampleRate / 1e6).toFixed(1)} MHz</span>
                 </div>
               </div>
 
               <div className="space-y-1.5 border-l border-[#E2E8F0] pl-3">
                 <div className="flex justify-between">
-                  <span className="text-[#64748B]">Doppler:</span>
-                  <span className="text-[#0F172A] font-bold">N/A</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#64748B]">Modulation:</span>
-                  <span className="text-[#7D83FF] font-bold text-[10px] truncate">
-                    {selectedAlert.category === 'UAS-like' ? 'DSSS (UAS)' : 'OFDM/AP'}
-                  </span>
+                  <span className="text-[#64748B]">Ground Truth:</span>
+                  <span className={`font-bold ${
+                    selectedAlert.groundTruth === 'UAS-like' ? 'text-[#FF1744]' : 'text-[#64748B]'
+                  }`}>{selectedAlert.groundTruth || 'Unknown'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#64748B]">Lock Status:</span>
-                  <span className="text-[#7D83FF] font-bold flex items-center">
-                    <span className="w-1.5 h-1.5 bg-[#7D83FF] rounded-full mr-1 animate-ping"></span>
-                    COHERENT
+                  <span className="text-emerald-600 font-bold flex items-center">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1 animate-ping"></span>
+                    LOCK
                   </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#64748B]">Database ID:</span>
+                  <span className="text-[#7D83FF] font-bold truncate max-w-[50px]">{selectedAlert.event_id ? selectedAlert.event_id.slice(0, 8) : selectedAlert.id}</span>
                 </div>
               </div>
 

@@ -6,169 +6,470 @@ import scipy.ndimage as ndimage
 import onnxruntime as ort
 import logging
 import io
+import json
 import pandas as pd
+from app import config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "competition_model.onnx")
-
-# Rolling 5-frame buffer for Temporal Smoothing HMM Filter
+# Temporal Buffer for single-stream stateful voting
 TEMPORAL_BUFFER = []
-BUFFER_SIZE = 5
 
 def load_onnx_session():
-    """Initializes the INT8 ONNX MobileNetV3 Core."""
-    if os.path.exists(MODEL_PATH):
+    """Initializes the double-headed ONNX MobileNetV3 Core."""
+    if os.path.exists(config.MODEL_PATH):
         try:
-            # Using CPUExecutionProvider for standard laptop CPU baseline
-            session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
-            logger.info("ONNX INT8 Model loaded successfully.")
+            # Using CPUExecutionProvider for standard CPU baseline
+            session = ort.InferenceSession(config.MODEL_PATH, providers=['CPUExecutionProvider'])
+            logger.info("ONNX Double-Headed Model loaded successfully.")
             return session
         except Exception as e:
             logger.error(f"Error loading ONNX model: {e}")
             return None
     else:
-        logger.warning("ONNX model file not found. Running in Dummy Simulation Mode.")
+        logger.warning(f"ONNX model file not found at {config.MODEL_PATH}. Running in Dummy Simulation Mode.")
         return None
 
 # Load the model once into memory
 onnx_session = load_onnx_session()
 
-def phase_1_ingestion(file_chunk: bytes):
-    """
-    Data Ingestion Layer: Parses binary structures (.npy / .sigmf / etc.)
-    Dynamically reads the uploaded CSV/NPY bundle from the UI into a numpy array.
-    """
+def parse_sigmf_meta(meta_content: bytes) -> dict:
+    """Parses SigMF JSON metadata and extracts parameters."""
     try:
-        # Check if the uploaded file is a highly compressed .npy binary
-        if file_chunk.startswith(b'\x93NUMPY'):
+        meta = json.loads(meta_content.decode('utf-8'))
+        global_info = meta.get('global', {})
+        captures = meta.get('captures', [{}])
+        annotations = meta.get('annotations', [])
+        
+        sample_rate = global_info.get('core:sample_rate', 1.0)
+        center_freq = captures[0].get('core:frequency', 2400.0e6) if captures else 2400.0e6
+        datatype = global_info.get('core:datatype', 'cf32')
+        
+        return {
+            "sample_rate": sample_rate,
+            "center_freq": center_freq / 1.0e6, # convert to MHz
+            "datatype": datatype,
+            "annotations": annotations
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse SigMF metadata: {e}")
+        return {}
+
+def phase_1_ingestion(file_chunk: bytes, filename: str = "") -> tuple:
+    """
+    Data Ingestion Layer: Parses binary structures (.npy / .npz / .sigmf / CSV)
+    Returns: (iq_data, metadata_dict)
+    """
+    metadata = {
+        "sample_rate": 1.0e6,      # default 1 MHz
+        "center_freq": 2400.0,     # default 2400 MHz (2.4 GHz)
+        "annotations": [],
+        "filename": filename
+    }
+    
+    try:
+        # Check if the uploaded file is a .npz file (Zip signature PK\x03\x04)
+        if file_chunk.startswith(b'PK\x03\x04'):
+            logger.info("Parsing file as NPZ archive...")
+            with np.load(io.BytesIO(file_chunk)) as archive:
+                files = archive.files
+                if not files:
+                    raise ValueError("Empty NPZ archive.")
+                # Look for a key that contains the actual data
+                data_key = next((k for k in files if 'data' in k.lower() or 'spec' in k.lower() or 'iq' in k.lower()), files[0])
+                raw_data = archive[data_key]
+        
+        # Check if the uploaded file is a highly compressed .npy binary (NUMPY signature)
+        elif file_chunk.startswith(b'\x93NUMPY'):
+            logger.info("Parsing file as NPY binary...")
             raw_data = np.load(io.BytesIO(file_chunk))
+            
         else:
-            # Otherwise, assume it is a raw CSV from the internet
+            lower_name = filename.lower()
+            
+            # Check if it's an image
+            is_image = any(lower_name.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.webp'])
+            if is_image:
+                logger.info("Parsing file as Spectrogram Image...")
+                try:
+                    from PIL import Image
+                    img = Image.open(io.BytesIO(file_chunk)).convert('RGB')
+                    img = img.resize((224, 224), Image.Resampling.BILINEAR)
+                    img_arr = np.array(img).astype(np.float32) / 255.0
+                    tensor = img_arr.transpose(2, 0, 1) # (3, 224, 224)
+                    tensor = np.expand_dims(tensor, axis=0) # (1, 3, 224, 224)
+                    metadata["image_tensor"] = tensor
+                    return np.array([]), metadata
+                except Exception as e:
+                    logger.error(f"Image parsing failed: {e}")
+
+            # Check if raw binary SigMF data
+            is_binary = any(lower_name.endswith(ext) for ext in ['.sigmf-data', '.data', '.bin'])
+            if is_binary:
+                logger.info("Parsing file as raw binary IQ...")
+                datatype = metadata.get("datatype", "cf32")
+                if "cf32" in datatype:
+                    raw_data = np.frombuffer(file_chunk, dtype=np.float32)
+                elif "ci16" in datatype:
+                    raw_data = np.frombuffer(file_chunk, dtype=np.int16).astype(np.float32) / 32767.0
+                elif "ci8" in datatype:
+                    raw_data = np.frombuffer(file_chunk, dtype=np.int8).astype(np.float32) / 127.0
+                else:
+                    raw_data = np.frombuffer(file_chunk, dtype=np.float32)
+                
+                if len(raw_data) % 2 != 0:
+                    raw_data = raw_data[:-1]
+                iq_data = raw_data[0::2] + 1j * raw_data[1::2]
+                return iq_data, metadata
+            
+            # Check if it is a JSON file (SigMF metadata)
+            try:
+                decoded = file_chunk.decode('utf-8', errors='ignore').strip()
+                if decoded.startswith('{') and decoded.endswith('}'):
+                    logger.info("Parsing file as SigMF Metadata (.meta)...")
+                    sigmf_meta = parse_sigmf_meta(file_chunk)
+                    metadata.update(sigmf_meta)
+                    # Return empty array for IQ data, to be populated when binary file is sent
+                    return np.array([]), metadata
+            except:
+                pass
+                
+            # Otherwise, assume it is a raw CSV
+            logger.info("Parsing file as CSV...")
             df = pd.read_csv(io.BytesIO(file_chunk), header=None, nrows=8192)
             raw_data = df.values
             
         raw_data = raw_data.flatten()
-        iq_data = raw_data[:4096]
         
-        # If it doesn't contain explicit imaginary components, spoof it for the math transforms
-        if not np.iscomplexobj(iq_data):
-            iq_data = iq_data + 1j * np.zeros_like(iq_data)
+        # Determine number of complex samples
+        # If it doesn't contain explicit imaginary components, check if interleaved (even/odd values represent real/imag)
+        if not np.iscomplexobj(raw_data):
+            if len(raw_data) >= 8192:
+                # Interpret as interleaved IQ values: I = even, Q = odd
+                iq_data = raw_data[0::2] + 1j * raw_data[1::2]
+            else:
+                # Spoof imaginary component
+                iq_data = raw_data + 1j * np.zeros_like(raw_data)
+        else:
+            iq_data = raw_data
             
-        return iq_data
+        return iq_data, metadata
     except Exception as e:
-        logger.error(f"Error parsing uploaded signal bundle: {e}")
-        # If the file is a text file or corrupted, throw a hard error so the UI knows it failed
-        raise ValueError(f"Invalid signal bundle format. Cannot parse IQ data. Details: {e}")
+        logger.error(f"Error parsing uploaded signal: {e}")
+        raise ValueError(f"Invalid signal format. Cannot parse IQ data. Details: {e}")
 
 def phase_2_feature_mapping(iq_data: np.ndarray) -> np.ndarray:
     """
     Advanced RF Feature Engineering: 
-    Transforms IQ into (224x224x3) Multi-Feature Tensor.
-    Target latency: < 150ms
+    Transforms IQ into (3, 224, 224) STFT log-magnitude tensor.
+    Applies DC offset removal, IQ Normalization, Hann windowing, and scales.
     """
-    # Channel 1: Log-Magnitude (STFT)
-    f, t, Zxx = signal.stft(iq_data, nperseg=256)
+    # 1. DC offset removal
+    if config.DC_REMOVE:
+        iq_data = iq_data - np.mean(iq_data)
+        
+    # 2. IQ Normalization
+    if config.NORMALIZATION:
+        peak = np.max(np.abs(iq_data))
+        if peak > 1e-9:
+            iq_data = iq_data / peak
+            
+    # 3. Generate STFT using Hann windowing
+    f, t, Zxx = signal.stft(
+        iq_data, 
+        nperseg=config.FFT_SIZE, 
+        noverlap=config.OVERLAP, 
+        window='hann'
+    )
+    
+    # 4. Log-Magnitude conversion
     stft_mag = np.log10(np.abs(Zxx) + 1e-9)
     
-    # Channel 2: Differential Phase Pattern
-    phase = np.angle(iq_data)
-    phase_diff = np.diff(phase, prepend=phase[0])
-    
-    # Channel 3: Cyclic Spectral Density (CSD) disabled for performance
-
-    # ACTUALLY map the spectrogram to the AI! 
-    # The prototype was passing random noise to the AI. We must resize the STFT.
+    # 5. Resize to 224x224 using fast bilinear interpolation
     zoom_y = 224 / stft_mag.shape[0]
     zoom_x = 224 / stft_mag.shape[1]
-    
-    # Resize to 224x224 using fast bilinear interpolation
     resized_stft = ndimage.zoom(stft_mag, (zoom_y, zoom_x))
     
-    # Normalize pixel values to [0, 1] range for the neural network
+    # 6. Normalize pixel values to [0, 1] range for ONNX model
     tensor_min = np.min(resized_stft)
     tensor_max = np.max(resized_stft)
     resized_stft = (resized_stft - tensor_min) / (tensor_max - tensor_min + 1e-9)
     
-    # Stack into 3 channels (RGB) to match MobileNetV3 expected input shape: (1, 3, 224, 224)
+    # Stack into 3 channels (RGB)
     tensor = np.stack([resized_stft, resized_stft, resized_stft])
     tensor = np.expand_dims(tensor, axis=0).astype(np.float32)
     
     return tensor
 
-def phase_3_onnx_inference(tensor: np.ndarray):
+def phase_3_onnx_inference(tensor: np.ndarray) -> tuple:
     """
-    Quantized Inference Execution: Runs INT8 MobileNetV3-Small ONNX.
-    Target latency: < 3ms
+    Executes ONNX MobileNetV3 inference.
+    Returns: (probabilities_array, embeddings_array)
     """
     if onnx_session is not None:
         input_name = onnx_session.get_inputs()[0].name
-        output_name = onnx_session.get_outputs()[0].name
-        result = onnx_session.run([output_name], {input_name: tensor})
-        # Assuming model outputs probabilities for [UAS-like, Non-UAS, Unknown]
-        probs = result[0][0]
-        return probs
+        output_names = [o.name for o in onnx_session.get_outputs()]
+        results = onnx_session.run(output_names, {input_name: tensor})
+        probs = results[0]
+        embeddings = results[1] if len(results) > 1 else np.zeros((tensor.shape[0], 1024))
+        return probs, embeddings
     else:
-        # Dummy Simulation (Force occasional UAS-like triggers)
-        if np.random.rand() > 0.8:
-            return np.array([0.95, 0.03, 0.02]) # UAS-like
-        else:
-            return np.array([0.05, 0.90, 0.05]) # Non-UAS
+        # Dummy Simulation Mode
+        logger.warning("ONNX Session is inactive. Generating simulated prediction.")
+        batch_size = tensor.shape[0]
+        probs = np.zeros((batch_size, 3))
+        for i in range(batch_size):
+            if np.random.rand() > 0.8:
+                probs[i] = np.array([0.95, 0.03, 0.02])
+            else:
+                probs[i] = np.array([0.05, 0.90, 0.05])
+        embeddings = np.random.randn(batch_size, 1024).astype(np.float32)
+        embeddings = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-9)
+        return probs, embeddings
 
-def phase_4_temporal_filter(probs: np.ndarray) -> dict:
+def phase_4_temporal_filter(probs_list: list) -> dict:
     """
-    Temporal Smoothing Filter: Applies 5-step rolling window check.
-    Target latency: < 1ms
+    Applies majority voting and temporal filter over a list of frame probabilities.
+    Returns consensus label and confidence.
     """
-    global TEMPORAL_BUFFER
-    
-    # Determine immediate frame class
     classes = ["UAS-like", "Non-UAS", "Unknown"]
-    frame_class_idx = np.argmax(probs)
-    frame_confidence = probs[frame_class_idx]
     
-    # Push to buffer
-    TEMPORAL_BUFFER.append(frame_class_idx)
-    if len(TEMPORAL_BUFFER) > BUFFER_SIZE:
-        TEMPORAL_BUFFER.pop(0)
+    # Map each frame probability to class index
+    class_indices = [int(np.argmax(p)) for p in probs_list]
+    confidences = [float(p[idx]) for idx, p in zip(class_indices, probs_list)]
     
-    # Apply Operational Guardrail: 3 out of 5 frames must match to trigger
     uas_idx = 0
-    uas_count = TEMPORAL_BUFFER.count(uas_idx)
+    uas_count = class_indices.count(uas_idx)
     
-    final_class = "Unknown"
-    if uas_count >= 3:
+    max_consecutive_uas = 0
+    current_consecutive = 0
+    first_threat_idx = -1
+    last_threat_idx = -1
+    
+    for i, idx in enumerate(class_indices):
+        if idx == uas_idx:
+            if current_consecutive == 0 and first_threat_idx == -1:
+                first_threat_idx = i
+            current_consecutive += 1
+            if current_consecutive > max_consecutive_uas:
+                max_consecutive_uas = current_consecutive
+                last_threat_idx = i
+        else:
+            current_consecutive = 0
+            
+    # Majority rule and Minimum signal duration filtering
+    min_consecutive = getattr(config, 'MIN_CONSECUTIVE_WINDOWS', 2)
+    if uas_count >= config.VOTING_THRESHOLD and max_consecutive_uas >= min_consecutive:
         final_class = "UAS-like"
+        # Find mean confidence of UAS-like frames
+        uas_confidences = [conf for idx, conf in zip(class_indices, confidences) if idx == uas_idx]
+        final_confidence = np.mean(uas_confidences) if uas_confidences else 0.85
     else:
-        # Just fallback to majority class in buffer
-        if len(TEMPORAL_BUFFER) > 0:
-            final_class = classes[max(set(TEMPORAL_BUFFER), key=TEMPORAL_BUFFER.count)]
-
+        # Fallback to majority vote
+        consensus_idx = max(set(class_indices), key=class_indices.count)
+        if consensus_idx == uas_idx: # If consensus is UAS but failed consecutive check
+            consensus_idx = 1 # Non-UAS fallback
+        final_class = classes[consensus_idx]
+        matching_confidences = [conf for idx, conf in zip(class_indices, confidences) if idx == consensus_idx]
+        final_confidence = np.mean(matching_confidences) if matching_confidences else 0.85
+        
     return {
         "category": final_class,
-        "confidence": float(frame_confidence),
-        "raw_probs": probs.tolist()
+        "confidence": float(final_confidence),
+        "class_indices": class_indices,
+        "confidences": confidences,
+        "first_threat_idx": first_threat_idx,
+        "last_threat_idx": last_threat_idx
     }
 
-def execute_pipeline(file_chunk: bytes):
-    """Executes the End-to-End processing pipeline."""
-    start_time = time.time()
+def execute_pipeline(file_chunk: bytes, filename: str = "", override_meta: dict = None) -> dict:
+    """
+    Executes the End-to-End processing pipeline with detailed Latency Breakdown.
+    Supports sliding window slicing and complex input parsing.
+    """
+    times = {}
     
     # 1. Ingestion
-    iq_data = phase_1_ingestion(file_chunk)
+    t_start = time.time()
+    iq_data, metadata = phase_1_ingestion(file_chunk, filename)
+    times["loading"] = (time.time() - t_start) * 1000
     
-    # 2. Mapping
-    tensor = phase_2_feature_mapping(iq_data)
+    # If the file is only a SigMF meta file, return early
+    if len(iq_data) == 0:
+        return {
+            "status": "metadata_only",
+            "metadata": metadata,
+            "latency_breakdown": {"loading": round(times["loading"], 2)}
+        }
+        
+    # If metadata overrides are provided (e.g. from a paired .meta file upload)
+    if override_meta:
+        metadata.update(override_meta)
+        
+    # Check if the file was a spectrogram image
+    if "image_tensor" in metadata:
+        tensor = metadata["image_tensor"]
+        t_spec_total = 0.0 # Bypassed
+        
+        t0 = time.time()
+        probs, embeddings = phase_3_onnx_inference(tensor)
+        t_onnx_total = (time.time() - t0) * 1000
+        
+        voting_result = {
+            "category": ["UAS-like", "Non-UAS", "Unknown"][int(np.argmax(probs[0]))],
+            "confidence": float(np.max(probs[0])),
+        }
+        avg_embedding = embeddings[0]
+        norm = np.linalg.norm(avg_embedding)
+        if norm > 1e-9:
+            avg_embedding = avg_embedding / norm
+            
+        return {
+            "status": "success",
+            "category": voting_result["category"],
+            "confidence": voting_result["confidence"],
+            "embedding": avg_embedding.tolist(),
+            "metadata": metadata,
+            "spectrogram_matrix": tensor[0][0].tolist(),
+            "latency_breakdown": {
+                "loading": round(times["loading"], 2),
+                "preprocessing": 0.0,
+                "spectrogram": 0.0,
+                "onnx": round(t_onnx_total, 2),
+                "postprocessing": 0.0,
+                "total": round(times["loading"] + t_onnx_total, 2)
+            }
+        }
+
+    # Noise rejection strategy
+    avg_power = np.mean(np.abs(iq_data))
+    if avg_power < getattr(config, 'NOISE_FLOOR_THRESHOLD', 1e-4):
+        return {
+            "status": "success",
+            "category": "Non-UAS",
+            "confidence": 0.99,
+            "embedding": np.zeros(1024).tolist(),
+            "metadata": metadata,
+            "spectrogram_matrix": None,
+            "latency_breakdown": {
+                "loading": round(times["loading"], 2),
+                "preprocessing": 0.0, "spectrogram": 0.0, "onnx": 0.0, "postprocessing": 0.0,
+                "total": round(times["loading"], 2)
+            }
+        }
+
+    # 2. Sliding Window & Preprocessing & ONNX Inference
+    t_prep_total = 0.0
+    t_spec_total = 0.0
+    t_onnx_total = 0.0
     
-    # 3. ONNX Core
-    probs = phase_3_onnx_inference(tensor)
+    tensors = []
     
-    # 4. Temporal Filter
-    result = phase_4_temporal_filter(probs)
+    # Segment length 4096 samples, overlap 2048
+    segment_size = 4096
+    overlap = 2048
+    step = segment_size - overlap
     
-    end_time = time.time()
-    latency_ms = (end_time - start_time) * 1000
+    # Ensure signal has at least segment_size samples
+    if len(iq_data) < segment_size:
+        pad_size = segment_size - len(iq_data)
+        iq_data = np.pad(iq_data, (0, pad_size), 'constant')
+        
+    num_samples = len(iq_data)
+    num_segments = max(1, (num_samples - segment_size) // step + 1)
     
-    result["processing_latency_ms"] = round(latency_ms, 2)
+    # Cap segments to 10 for performance safeguard
+    num_segments = min(num_segments, 10)
+    
+    logger.info(f"Processing signal split into {num_segments} sliding segments...")
+    
+    for i in range(num_segments):
+        start_idx = i * step
+        end_idx = start_idx + segment_size
+        segment = iq_data[start_idx:end_idx]
+        
+        # A. Preprocessing
+        t0 = time.time()
+        # DC removal / Normalization inside phase_2_feature_mapping
+        t_prep_total += (time.time() - t0) * 1000
+        
+        # B. Spectrogram Generation
+        t0 = time.time()
+        tensor = phase_2_feature_mapping(segment)
+        t_spec_total += (time.time() - t0) * 1000
+        tensors.append(tensor[0])
+        
+    batched_tensor = np.stack(tensors, axis=0) # shape (num_segments, 3, 224, 224)
+        
+    # C. Inference
+    t0 = time.time()
+    probs, embeddings = phase_3_onnx_inference(batched_tensor)
+    t_onnx_total += (time.time() - t0) * 1000
+    
+    probs_list = list(probs)
+    embeddings_list = list(embeddings)
+        
+    times["preprocessing"] = t_prep_total
+    times["spectrogram"] = t_spec_total
+    times["onnx"] = t_onnx_total
+    
+    # 3. Postprocessing & Temporal filter voting consensus
+    t_post_start = time.time()
+    voting_result = phase_4_temporal_filter(probs_list)
+    
+    # Calculate average embedding across all windows
+    avg_embedding = np.mean(embeddings_list, axis=0)
+    # Normalize average embedding
+    norm = np.linalg.norm(avg_embedding)
+    if norm > 1e-9:
+        avg_embedding = avg_embedding / norm
+        
+    times["postprocessing"] = (time.time() - t_post_start) * 1000
+    
+    # Compute total latency
+    total_latency = sum(times.values())
+    times["total"] = total_latency
+    
+    # Generate a plot image representation of the first segment's spectrogram (Channel 0)
+    first_tensor = phase_2_feature_mapping(iq_data[:segment_size])[0][0] # 224x224 array
+    
+    # Format onset and offset dynamically if we found a threat
+    sample_rate = metadata.get("sample_rate", 1.0)
+    
+    onset_time = 0.0
+    offset_time = float(num_segments * step / sample_rate)
+    
+    if voting_result["category"] == "UAS-like":
+        if voting_result["first_threat_idx"] != -1:
+            onset_time = (voting_result["first_threat_idx"] * step) / sample_rate
+        if voting_result["last_threat_idx"] != -1:
+            offset_time = ((voting_result["last_threat_idx"] + 1) * step + overlap) / sample_rate
+            
+    def format_time(seconds):
+        ms = int((seconds % 1) * 1000)
+        s = int(seconds)
+        m = s // 60
+        h = m // 60
+        return f"{h:02d}:{m%60:02d}:{s%60:02d}.{ms:03d}"
+        
+    result = {
+        "status": "success",
+        "category": voting_result["category"],
+        "confidence": voting_result["confidence"],
+        "embedding": avg_embedding.tolist(),
+        "metadata": metadata,
+        "spectrogram_matrix": first_tensor.tolist(), # Return matrix to save as PNG in database
+        "onset": format_time(onset_time),
+        "offset": format_time(offset_time),
+        "latency_breakdown": {
+            "loading": round(times["loading"], 2),
+            "preprocessing": round(times["preprocessing"], 2),
+            "spectrogram": round(times["spectrogram"], 2),
+            "onnx": round(times["onnx"], 2),
+            "postprocessing": round(times["postprocessing"], 2),
+            "total": round(times["total"], 2)
+        }
+    }
+    
     return result

@@ -7,3 +7,5 @@ onnxruntime>=1.18.0
 pydantic
 python-multipart
 pandas
+pillow
+

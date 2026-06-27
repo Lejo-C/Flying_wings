@@ -86,6 +86,30 @@ class DroneRFDataset(Dataset):
         
         return tensor, torch.tensor(label, dtype=torch.long)
 
+class DoubleHeadedMobileNet(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.features = base_model.features
+        self.avgpool = base_model.avgpool
+        # The classifier sequential block has Linear, Hardswish, Dropout, Linear
+        self.classifier_prep = nn.Sequential(
+            base_model.classifier[0],
+            base_model.classifier[1],
+            base_model.classifier[2]
+        )
+        self.classifier_head = base_model.classifier[3]
+        
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        embeddings = self.classifier_prep(x)
+        logits = self.classifier_head(embeddings)
+        if self.training:
+            return logits, embeddings
+        probs = torch.softmax(logits, dim=1)
+        return probs, embeddings
+
 def build_model(num_classes=3):
     """Initializes the MobileNetV3-Small architecture for Transfer Learning."""
     print("-> Loading MobileNetV3-Small Base Architecture...")
@@ -98,6 +122,8 @@ def build_model(num_classes=3):
     in_features = model.classifier[-1].in_features
     model.classifier[-1] = nn.Linear(in_features, num_classes)
     
+    # Wrap in our double-headed architecture
+    model = DoubleHeadedMobileNet(model)
     return model
 
 def train_model():
@@ -139,8 +165,8 @@ def train_model():
             inputs, labels = inputs.to(device), labels.to(device)
             
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            logits, embeddings = model(inputs)
+            loss = criterion(logits, labels)
             
             loss.backward()
             optimizer.step()
@@ -173,8 +199,8 @@ def export_onnx(model, device):
         opset_version=11,          # Standard ONNX opset version
         do_constant_folding=True,  # Optimizes the weights for speed
         input_names=['input'],     # This matches what processor.py expects
-        output_names=['output'],
-        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        output_names=['probs', 'embeddings'],
+        dynamic_axes={'input': {0: 'batch_size'}, 'probs': {0: 'batch_size'}, 'embeddings': {0: 'batch_size'}}
     )
     print(f"\n======================================")
     print(f"SUCCESS! Model exported to '{onnx_path}'")
