@@ -49,6 +49,7 @@ def parse_sigmf_meta(meta_content: bytes) -> dict:
         return {
             "sample_rate": sample_rate,
             "center_freq": center_freq / 1.0e6, # convert to MHz
+            "bandwidth": sample_rate / 1.0e6,   # Baseband bandwidth
             "datatype": datatype,
             "annotations": annotations
         }
@@ -64,6 +65,7 @@ def phase_1_ingestion(file_chunk: bytes, filename: str = "") -> tuple:
     metadata = {
         "sample_rate": 1.0e6,      # default 1 MHz
         "center_freq": 2400.0,     # default 2400 MHz (2.4 GHz)
+        "bandwidth": 1.0,          # default 1 MHz bandwidth
         "annotations": [],
         "filename": filename
     }
@@ -175,29 +177,32 @@ def phase_2_feature_mapping(iq_data: np.ndarray) -> np.ndarray:
         if peak > 1e-9:
             iq_data = iq_data / peak
             
-    # 3. Generate STFT using Hann windowing
-    f, t, Zxx = signal.stft(
-        iq_data, 
-        nperseg=config.FFT_SIZE, 
-        noverlap=config.OVERLAP, 
-        window='hann'
-    )
+    # 3. Channel 1: Log-Magnitude STFT
+    f, t, Zxx = signal.stft(iq_data, nperseg=config.FFT_SIZE, noverlap=config.OVERLAP, window='hann')
+    ch1 = np.log10(np.abs(Zxx) + 1e-9)
     
-    # 4. Log-Magnitude conversion
-    stft_mag = np.log10(np.abs(Zxx) + 1e-9)
+    # 4. Channel 2: STFT Phase Map
+    ch2 = np.angle(Zxx)
     
-    # 5. Resize to 224x224 using fast bilinear interpolation
-    zoom_y = 224 / stft_mag.shape[0]
-    zoom_x = 224 / stft_mag.shape[1]
-    resized_stft = ndimage.zoom(stft_mag, (zoom_y, zoom_x))
+    # 5. Channel 3: Cyclic Spectral Density (CSD Spectrogram via Fast FFT Correlation)
+    autocorr = signal.correlate(iq_data, iq_data, mode='same', method='fft')
+    _, _, Zxx_c = signal.stft(autocorr, nperseg=config.FFT_SIZE, noverlap=config.OVERLAP, window='hann')
+    ch3 = np.log10(np.abs(Zxx_c) + 1e-9)
     
-    # 6. Normalize pixel values to [0, 1] range for ONNX model
-    tensor_min = np.min(resized_stft)
-    tensor_max = np.max(resized_stft)
-    resized_stft = (resized_stft - tensor_min) / (tensor_max - tensor_min + 1e-9)
+    # 6. Resize all channels to 224x224 and Normalize
+    def resize_and_norm(matrix):
+        zoom_y = 224 / matrix.shape[0]
+        zoom_x = 224 / matrix.shape[1]
+        resized = ndimage.zoom(matrix, (zoom_y, zoom_x))
+        m_min, m_max = np.min(resized), np.max(resized)
+        return (resized - m_min) / (m_max - m_min + 1e-9)
+        
+    ch1_norm = resize_and_norm(ch1)
+    ch2_norm = resize_and_norm(ch2)
+    ch3_norm = resize_and_norm(ch3)
     
-    # Stack into 3 channels (RGB)
-    tensor = np.stack([resized_stft, resized_stft, resized_stft])
+    # Stack into 3 unique channels (RGB)
+    tensor = np.stack([ch1_norm, ch2_norm, ch3_norm])
     tensor = np.expand_dims(tensor, axis=0).astype(np.float32)
     
     return tensor

@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from pipeline import processor
+from app.pipeline import processor
 from app import config
 
 def add_noise(signal, snr_db):

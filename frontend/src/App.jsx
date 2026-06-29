@@ -32,11 +32,11 @@ export default function App() {
 
   // Performance metrics from backend
   const [metrics, setMetrics] = useState({
-    pd: 0.93,
-    far: 0.02,
-    precision: 0.94,
-    recall: 0.93,
-    f1: 0.91,
+    pd: 0.0,
+    far: 0.0,
+    precision: 0.0,
+    recall: 0.0,
+    f1: 0.0,
     total_events: 0,
     confusion_matrix: null
   });
@@ -56,9 +56,27 @@ export default function App() {
     }
   };
 
+  // Fetch historical alerts from DB
+  const fetchAlertHistory = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/alerts');
+      const data = await response.json();
+      if (data.status === "success" && data.alerts) {
+        setAlerts(data.alerts);
+        if (data.alerts.length > 0) {
+            setSelectedAlert(data.alerts[0]);
+            setIsThreatActive(data.alerts[0].category === 'UAS-like');
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching historical alerts:", err);
+    }
+  };
+
   // WebSocket connection for real-time alerts
   useEffect(() => {
     fetchMetrics();
+    fetchAlertHistory();
     
     const ws = new WebSocket('ws://localhost:8000/ws/telemetry');
     
@@ -220,24 +238,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Interactive Dynamic Threat Status Badge */}
-          <div 
-            onClick={handleToggleAlarm}
-            title="Click to toggle system alarm override"
-            className={`cursor-pointer px-5 py-2.5 rounded-lg border font-mono text-[11px] font-bold tracking-widest flex items-center space-x-3 select-none transition-all duration-300 ${
-              isThreatActive 
-                ? 'bg-[#FF1744]/10 border-[#FF1744] text-[#FF1744] hover:bg-[#FF1744]/15' 
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/15'
-            }`}
-          >
-            <span className={`w-2.5 h-2.5 rounded-full ${isThreatActive ? 'bg-[#FF1744] animate-ping' : 'bg-emerald-500'}`} />
-            <span>
-              {isThreatActive ? 'UAS DETECTED / passive alert active' : 'SYSTEM SAFE / MONITORING'}
-            </span>
-            <span className="text-[8px] bg-[#64748B]/10 px-1 py-0.5 rounded text-[#64748B] font-sans border border-[#64748B]/20">
-              OVERRIDE
-            </span>
-          </div>
+
 
           {/* Core File Telemetry details */}
           <div className="flex items-center space-x-5 text-xs font-mono">
@@ -352,7 +353,7 @@ export default function App() {
             precision={metrics.precision}
             recall={metrics.recall}
             f1={metrics.f1} 
-            latency={selectedAlert ? (selectedAlert.latency_ms / 1000) : 0.015} 
+            latency={selectedAlert ? (selectedAlert.latency_ms / 1000) : 0.0} 
             libraryCount={alerts.length}
             confusionMatrix={metrics.confusion_matrix}
           />

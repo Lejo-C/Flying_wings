@@ -45,45 +45,61 @@ class DroneRFDataset(Dataset):
         CRITICAL: This block must match phase_2_feature_mapping() in processor.py EXACTLY!
         It converts 1D complex arrays into 3-channel 224x224 "Images" for MobileNet.
         """
-        # Channel 1: Log-Magnitude STFT
-        f, t, Zxx = signal.stft(iq_data, nperseg=256)
+        import scipy.ndimage as ndimage
+        
+        # 1. Channel 1: Log-Magnitude STFT
+        f, t, Zxx = signal.stft(iq_data, nperseg=256, noverlap=128, window='hann')
         ch1 = np.log10(np.abs(Zxx) + 1e-9)
         
-        # Channel 2: Phase Differential
-        phase = np.angle(iq_data)
-        ch2 = np.diff(phase, prepend=phase[0])
+        # 2. Channel 2: STFT Phase Map
+        ch2 = np.angle(Zxx)
         
-        # Channel 3: Cyclic Spectral Density (CSD Placeholder)
-        ch3 = np.abs(np.correlate(iq_data, iq_data, mode='same'))
+        # 3. Channel 3: Cyclic Spectral Density
+        autocorr = signal.correlate(iq_data, iq_data, mode='same', method='fft')
+        _, _, Zxx_c = signal.stft(autocorr, nperseg=256, noverlap=128, window='hann')
+        ch3 = np.log10(np.abs(Zxx_c) + 1e-9)
         
-        # Resize/Pad to exactly (3, 224, 224) 
-        tensor = np.random.randn(3, 224, 224).astype(np.float32) # DUMMY FALLBACK
+        # Resize & Normalize
+        def resize_and_norm(matrix):
+            zoom_y = 224 / matrix.shape[0]
+            zoom_x = 224 / matrix.shape[1]
+            resized = ndimage.zoom(matrix, (zoom_y, zoom_x))
+            m_min, m_max = np.min(resized), np.max(resized)
+            return (resized - m_min) / (m_max - m_min + 1e-9)
+            
+        ch1_norm = resize_and_norm(ch1)
+        ch2_norm = resize_and_norm(ch2)
+        ch3_norm = resize_and_norm(ch3)
+        
+        tensor = np.stack([ch1_norm, ch2_norm, ch3_norm]).astype(np.float32)
         return torch.tensor(tensor)
 
     def __getitem__(self, idx):
         # 1. Load actual data from disk
         if len(self.files) > 0:
-            # Load the binary .npy file instantly! (Takes milliseconds instead of minutes)
             raw_data = np.load(self.files[idx])
-            
-            # The data is already flattened by our converter script, but we rigidly enforce 
-            # the size during loading so we don't blow up the GPU RAM during STFT math.
             iq_data = raw_data[:100000]
-            
-            # If the CSV doesn't have complex numbers explicitly (just real), we spoof the imaginary part 
-            # for the sake of the math transforms, or load it properly if it's separated.
             if not np.iscomplexobj(iq_data):
                 iq_data = iq_data + 1j * np.zeros_like(iq_data)
-                
             label = self.labels[idx]
+            
+            # --- DATA AUGMENTATION ---
+            # Random amplitude scaling
+            scale = np.random.uniform(0.5, 1.5)
+            iq_data = iq_data * scale
+            
+            # Add synthetic White Gaussian Noise (AWGN) to simulate interference
+            noise_power = np.random.uniform(0.01, 0.1)
+            noise = np.sqrt(noise_power/2) * (np.random.randn(len(iq_data)) + 1j * np.random.randn(len(iq_data)))
+            iq_data = iq_data + noise
+            
         else:
-            # 2. Or generate Dummy Data to test if GPU works before you download the 43GB
+            # 2. Or generate Dummy Data
             iq_data = np.random.randn(4096) + 1j * np.random.randn(4096)
             label = np.random.randint(0, 3)
 
         # 3. Apply math transforms to shape (3, 224, 224)
         tensor = self._convert_to_tensor(iq_data)
-        
         return tensor, torch.tensor(label, dtype=torch.long)
 
 class DoubleHeadedMobileNet(nn.Module):
@@ -146,7 +162,8 @@ def train_model():
     
     train_dataset = DroneRFDataset(data_dir=dataset_path)
     # Because binary .npy files are so memory efficient, we can safely max out the GPU!
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=2)
+    # UPDATE: Reduced batch size and disabled num_workers to prevent Windows/Docker memory crashes!
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
 
     # 2. Setup Model & Optimizer
     model = build_model(num_classes=3).to(device)
@@ -154,8 +171,11 @@ def train_model():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # 3. Training Loop
-    EPOCHS = 5 # Increase to 50+ for actual competition training
-    print("-> Starting Training Phase...")
+    EPOCHS = 50 # Full Competition Training
+    print("-> Starting Training Phase (50 Epochs)...")
+    
+    best_loss = float('inf')
+    best_model_path = os.path.join(script_dir, "best_model.pth")
     
     for epoch in range(EPOCHS):
         model.train()
@@ -173,14 +193,23 @@ def train_model():
             
             running_loss += loss.item()
             
-            # Print every single batch so we can watch it fly!
-            if batch_idx % 1 == 0:
+            if batch_idx % 10 == 0:
                 print(f"Epoch [{epoch+1}/{EPOCHS}] Batch [{batch_idx+1}/{len(train_loader)}] Loss: {loss.item():.4f}")
                 
-        print(f"--- Epoch {epoch+1} Completed. Avg Loss: {running_loss/len(train_loader):.4f} ---")
+        avg_loss = running_loss / len(train_loader)
+        print(f"--- Epoch {epoch+1} Completed. Avg Loss: {avg_loss:.4f} ---")
+        
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save(model.state_dict(), best_model_path)
+            print(f"[*] New best model saved! (Loss: {best_loss:.4f})")
+
+    # Load best weights before export
+    print("\n-> Loading best weights for export...")
+    model.load_state_dict(torch.load(best_model_path))
 
     # 4. Export to ONNX
-    print("\n-> Training complete. Exporting model to ONNX format...")
+    print("\n-> Training complete. Exporting best model to ONNX format...")
     export_onnx(model, device)
 
 def export_onnx(model, device):
@@ -189,7 +218,10 @@ def export_onnx(model, device):
     
     # Create a dummy tensor of the exact shape the backend will send (Batch Size 1, 3 Channels, 224x224)
     dummy_input = torch.randn(1, 3, 224, 224, device=device)
-    onnx_path = "competition_model.onnx"
+    
+    # Save directly to the training folder which is mapped to the Windows host!
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    onnx_path = os.path.join(script_dir, "competition_model.onnx")
     
     torch.onnx.export(
         model, 

@@ -165,3 +165,16 @@ def download_report():
 @app.get("/api/health")
 def health_check():
     return {"status": "online", "model": "mobilenet_v3_small_int8"}
+
+@app.get("/api/alerts")
+def get_alerts():
+    """Returns the historical alert log."""
+    if os.path.exists(config.JSON_PATH):
+        try:
+            with open(config.JSON_PATH, "r") as f:
+                alerts_history = json.load(f)
+            # Return newest first
+            return JSONResponse({"status": "success", "alerts": list(reversed(alerts_history))})
+        except:
+            return JSONResponse({"status": "success", "alerts": []})
+    return JSONResponse({"status": "success", "alerts": []})

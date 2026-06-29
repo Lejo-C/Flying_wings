@@ -2,19 +2,18 @@ import React from 'react';
 import { Target, CheckCircle2, ShieldAlert, Cpu, Database, AlertCircle, Grid } from 'lucide-react';
 
 export default function PerformanceHud({ 
-  pd = 0.93, 
-  far = 0.02, 
-  precision = 0.94,
-  recall = 0.93,
-  f1 = 0.91, 
-  latency = 0.015, 
+  pd = 0.0, 
+  far = 0.0, 
+  precision = 0.0,
+  recall = 0.0,
+  f1 = 0.0, 
+  latency = 0.0, 
   libraryCount = 0,
   confusionMatrix = null
 }) {
-  // Render tiny 3x3 confusion matrix table
-  const renderConfusionMatrix = () => {
+  // Render prediction summary table
+  const renderPredictionSummary = () => {
     if (!confusionMatrix) {
-      // Default placeholder matrix showing basic classes
       confusionMatrix = {
         "UAS-like": {"UAS-like": 0, "Non-UAS": 0, "Unknown": 0},
         "Non-UAS": {"UAS-like": 0, "Non-UAS": 0, "Unknown": 0},
@@ -22,33 +21,36 @@ export default function PerformanceHud({
       };
     }
 
-    const classes = ["UAS-like", "Non-UAS", "Unknown"];
+    const uasCount = confusionMatrix["UAS-like"]["UAS-like"] + confusionMatrix["Non-UAS"]["UAS-like"] + confusionMatrix["Unknown"]["UAS-like"];
+    const nonUasCount = confusionMatrix["UAS-like"]["Non-UAS"] + confusionMatrix["Non-UAS"]["Non-UAS"] + confusionMatrix["Unknown"]["Non-UAS"];
+    const unknownCount = confusionMatrix["UAS-like"]["Unknown"] + confusionMatrix["Non-UAS"]["Unknown"] + confusionMatrix["Unknown"]["Unknown"];
     
     return (
       <div className="mt-4 pt-3 border-t border-[#E2E8F0]">
         <div className="flex items-center space-x-1.5 mb-2">
           <Grid className="w-3.5 h-3.5 text-[#7D83FF]" />
-          <span className="font-sans text-[10px] font-extrabold text-[#0F172A] uppercase tracking-wider">Ternary Confusion Matrix (Actual vs Predicted)</span>
+          <span className="font-sans text-[10px] font-extrabold text-[#0F172A] uppercase tracking-wider">Detection Summary (Total Predictions)</span>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-center font-mono text-[9px] border border-[#E2E8F0]">
             <thead>
+              <tr className="bg-[#F8FAFC] text-[#64748B]">
+                <th colSpan="3" className="px-2 py-1 font-extrabold uppercase text-center border-b border-[#E2E8F0] tracking-widest text-[10px]">
+                  PREDICTED CLASS <span className="opacity-70 font-normal">(Model Output)</span>
+                </th>
+              </tr>
               <tr className="bg-[#F8FAFC] text-[#64748B] border-b border-[#E2E8F0]">
-                <th className="px-2 py-1 text-left font-bold uppercase">Actual \ Pred</th>
-                <th className="px-2 py-1 font-bold text-[#FF1744]">UAS-LIKE</th>
-                <th className="px-2 py-1 font-bold text-emerald-600">NON-UAS</th>
-                <th className="px-2 py-1 font-bold text-amber-600">UNKNOWN</th>
+                <th className="px-2 py-1 font-bold text-[#FF1744] w-1/3 border-r border-[#E2E8F0]">UAS-LIKE</th>
+                <th className="px-2 py-1 font-bold text-emerald-600 w-1/3 border-r border-[#E2E8F0]">NON-UAS</th>
+                <th className="px-2 py-1 font-bold text-amber-600 w-1/3">UNKNOWN</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] text-[#334155]">
-              {classes.map(act => (
-                <tr key={act} className="hover:bg-[#F8FAFC]">
-                  <td className="px-2 py-1 text-left font-bold bg-[#F8FAFC]/50 text-[#64748B]">{act.toUpperCase()}</td>
-                  <td className={`px-2 py-1 font-semibold ${confusionMatrix[act]["UAS-like"] > 0 && act === "UAS-like" ? "bg-red-50 text-[#FF1744] font-bold" : ""}`}>{confusionMatrix[act]["UAS-like"]}</td>
-                  <td className={`px-2 py-1 font-semibold ${confusionMatrix[act]["Non-UAS"] > 0 && act === "Non-UAS" ? "bg-emerald-50 text-emerald-600 font-bold" : ""}`}>{confusionMatrix[act]["Non-UAS"]}</td>
-                  <td className={`px-2 py-1 font-semibold ${confusionMatrix[act]["Unknown"] > 0 && act === "Unknown" ? "bg-amber-50 text-amber-600 font-bold" : ""}`}>{confusionMatrix[act]["Unknown"]}</td>
-                </tr>
-              ))}
+              <tr className="hover:bg-[#F8FAFC]">
+                <td className={`px-2 py-2 border-r border-[#E2E8F0] font-semibold ${uasCount > 0 ? "bg-red-50 text-[#FF1744] font-bold text-lg" : "text-lg"}`}>{uasCount}</td>
+                <td className={`px-2 py-2 border-r border-[#E2E8F0] font-semibold ${nonUasCount > 0 ? "bg-emerald-50 text-emerald-600 font-bold text-lg" : "text-lg"}`}>{nonUasCount}</td>
+                <td className={`px-2 py-2 font-semibold ${unknownCount > 0 ? "bg-amber-50 text-amber-600 font-bold text-lg" : "text-lg"}`}>{unknownCount}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -124,8 +126,8 @@ export default function PerformanceHud({
 
       </div>
 
-      {/* Render the 3x3 Confusion Matrix */}
-      {renderConfusionMatrix()}
+      {/* Render the Prediction Summary */}
+      {renderPredictionSummary()}
     </div>
   );
 }
