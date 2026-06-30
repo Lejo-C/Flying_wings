@@ -314,7 +314,7 @@ def execute_pipeline(file_chunk: bytes, filename: str = "", override_meta: dict 
         
     # Check if the file was a spectrogram image
     if "image_tensor" in metadata:
-        tensor = metadata["image_tensor"]
+        tensor = metadata.pop("image_tensor")
         t_spec_total = 0.0 # Bypassed
         
         t0 = time.time()
