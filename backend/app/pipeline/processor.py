@@ -300,8 +300,8 @@ def execute_pipeline(file_chunk: bytes, filename: str = "", override_meta: dict 
     iq_data, metadata = phase_1_ingestion(file_chunk, filename)
     times["loading"] = (time.time() - t_start) * 1000
     
-    # If the file is only a SigMF meta file, return early
-    if len(iq_data) == 0:
+    # If the file is only a SigMF meta file (and not an image), return early
+    if len(iq_data) == 0 and "image_tensor" not in metadata:
         return {
             "status": "metadata_only",
             "metadata": metadata,

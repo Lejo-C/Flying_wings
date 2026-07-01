@@ -36,17 +36,17 @@ export default function AlertLogTable({
   };
 
   return (
-    <div className="bg-white border border-[#E2E8F0] rounded-lg flex flex-col h-full shadow-sm">
+    <div className="bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#334155] rounded-lg flex flex-col h-full shadow-sm">
       
       {/* Header */}
-      <div className="bg-[#F8FAFC] px-4 py-3 border-b border-[#E2E8F0] flex items-center justify-between">
+      <div className="bg-[#F8FAFC] dark:bg-[#1E293B] px-4 py-3 border-b border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <Database className="w-4 h-4 text-[#7D83FF]" />
-          <span className="font-sans text-xs font-extrabold text-[#0F172A] tracking-wider uppercase">
+          <span className="font-sans text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-wider uppercase">
             Actionable Alert Timeline Log
           </span>
         </div>
-        <div className="text-[10px] font-mono text-[#64748B] font-bold">
+        <div className="text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8] font-bold">
           CONFIDENCE CUTOFF: <span className="text-[#7D83FF]">{(confidenceThreshold * 100).toFixed(0)}%</span>
         </div>
       </div>
@@ -55,7 +55,7 @@ export default function AlertLogTable({
       <div className="overflow-y-auto max-h-[300px] flex-1">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-[#F8FAFC]/80 text-[#64748B] border-b border-[#E2E8F0] font-mono text-[10px] tracking-wider sticky top-0 z-10 backdrop-blur-sm">
+            <tr className="bg-[#F8FAFC] dark:bg-[#1E293B]/80 text-[#64748B] dark:text-[#94A3B8] border-b border-[#E2E8F0] dark:border-[#334155] font-mono text-[10px] tracking-wider sticky top-0 z-10 backdrop-blur-sm">
               <th className="px-4 py-2 font-bold uppercase">Signal Details</th>
               <th className="px-4 py-2 font-bold uppercase">Time Bounds (Dataset Onset &gt; Offset)</th>
               <th className="px-4 py-2 font-bold uppercase text-center">Output Class</th>
@@ -64,10 +64,10 @@ export default function AlertLogTable({
               <th className="px-2 py-2 font-bold uppercase text-center">HUD</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#E2E8F0] font-mono text-xs text-[#334155]">
+          <tbody className="divide-y divide-[#E2E8F0] dark:divide-[#334155] font-mono text-xs text-[#334155] dark:text-[#CBD5E1]">
             {filteredAlerts.length === 0 ? (
               <tr>
-                <td colSpan="6" className="text-center py-8 text-[#64748B] italic text-[11px]">
+                <td colSpan="6" className="text-center py-8 text-[#64748B] dark:text-[#94A3B8] italic text-[11px]">
                   No emissions exceed confidence threshold. Adjust threshold slider.
                 </td>
               </tr>
@@ -88,10 +88,10 @@ export default function AlertLogTable({
                   >
                     <td className="px-4 py-2">
                       <div className="flex flex-col">
-                        <span className={`font-sans font-bold text-xs ${isSelected ? 'text-[#7D83FF]' : 'text-[#0F172A]'} group-hover:text-[#7D83FF]`}>
+                        <span className={`font-sans font-bold text-xs ${isSelected ? 'text-[#7D83FF]' : 'text-[#0F172A] dark:text-[#F8FAFC]'} group-hover:text-[#7D83FF]`}>
                           {alert.matchingLibrary !== 'None' ? alert.matchingLibrary : 'Unidentified Emission'}
                         </span>
-                        <div className="flex items-center space-x-1.5 text-[9px] text-[#64748B] mt-0.5">
+                        <div className="flex items-center space-x-1.5 text-[9px] text-[#64748B] dark:text-[#94A3B8] mt-0.5">
                           {alert.matchingLibrary !== 'None' ? (
                             <span className="flex items-center text-[#7D83FF] font-bold">
                               <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> LIB MATCH
@@ -110,9 +110,9 @@ export default function AlertLogTable({
                       </div>
                     </td>
 
-                    <td className="px-4 py-2 text-[#64748B] text-[11px]">
+                    <td className="px-4 py-2 text-[#64748B] dark:text-[#94A3B8] text-[11px]">
                       <div className="flex items-center space-x-1">
-                        <span className="text-[#0F172A] font-bold">{alert.onset}</span>
+                        <span className="text-[#0F172A] dark:text-[#F8FAFC] font-bold">{alert.onset}</span>
                         <span>&gt;</span>
                         <span>{alert.offset}</span>
                       </div>
@@ -127,19 +127,19 @@ export default function AlertLogTable({
                         ? 'text-[#FF1744]' 
                         : alert.confidence >= 0.8 
                         ? 'text-[#7D83FF]' 
-                        : 'text-[#0F172A]'
+                        : 'text-[#0F172A] dark:text-[#F8FAFC]'
                     }`}>
                       {(alert.confidence * 100).toFixed(1)}%
                     </td>
 
                     <td className="px-4 py-2 text-right">
                       <div className="flex flex-col text-[11px]">
-                        <span className="text-[#0F172A] font-bold">{alert.centerFreq.toFixed(1)} MHz</span>
-                        <span className="text-[#64748B] text-[9px]">BW: {alert.bandwidth.toFixed(1)} MHz</span>
+                        <span className="text-[#0F172A] dark:text-[#F8FAFC] font-bold">{alert.centerFreq.toFixed(1)} MHz</span>
+                        <span className="text-[#64748B] dark:text-[#94A3B8] text-[9px]">BW: {alert.bandwidth.toFixed(1)} MHz</span>
                       </div>
                     </td>
 
-                    <td className="px-2 py-2 text-center text-[#64748B]">
+                    <td className="px-2 py-2 text-center text-[#64748B] dark:text-[#94A3B8]">
                       <Search className={`w-4 h-4 mx-auto ${
                         isSelected 
                           ? 'text-[#7D83FF]' 
@@ -155,7 +155,7 @@ export default function AlertLogTable({
       </div>
 
       {/* Footer statistics info */}
-      <div className="bg-[#F8FAFC] px-4 py-2 border-t border-[#E2E8F0] flex items-center justify-between text-[10px] font-mono text-[#64748B]">
+      <div className="bg-[#F8FAFC] dark:bg-[#1E293B] px-4 py-2 border-t border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8]">
         <div>
           TIMELINE EMISSIONS: {filteredAlerts.length} OF {alerts.length} DISPLAYED
         </div>

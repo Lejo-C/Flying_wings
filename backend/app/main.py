@@ -6,7 +6,7 @@ from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from app.database import init_db, log_alert, calculate_metrics
+from app.database import init_db, log_alert, calculate_metrics, clear_database
 from app.pipeline.processor import execute_pipeline, parse_sigmf_meta
 from app import config
 
@@ -178,3 +178,12 @@ def get_alerts():
         except:
             return JSONResponse({"status": "success", "alerts": []})
     return JSONResponse({"status": "success", "alerts": []})
+
+@app.post("/api/reset")
+def reset_system():
+    """Clears all historical data and resets metrics."""
+    try:
+        clear_database()
+        return JSONResponse({"status": "success", "message": "System reset successfully."})
+    except Exception as e:
+        return JSONResponse({"status": "failed", "error": str(e)}, status_code=500)

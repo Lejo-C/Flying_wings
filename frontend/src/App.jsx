@@ -13,14 +13,16 @@ import {
   FolderOpen,
   Cpu,
   Activity,
-  Download
+  Download,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 export default function App() {
   const [alerts, setAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.70);
-  const [smoothingWindow, setSmoothingWindow] = useState(5);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   
   // Ingestion states
   const [streamName, setStreamName] = useState('WAITING FOR STREAM...');
@@ -198,6 +200,24 @@ export default function App() {
     setIsDragging(true);
   };
 
+  const handleReset = async () => {
+    if (!window.confirm("Are you sure you want to completely wipe all historical alerts and testing metrics?")) return;
+    try {
+      await fetch('http://localhost:8000/api/reset', { method: 'POST' });
+      setAlerts([]);
+      setSelectedAlert(null);
+      setMetrics({
+        pd: 0.0, far: 0.0, precision: 0.0, recall: 0.0, f1: 0.0, total_events: 0, confusion_matrix: null
+      });
+      setStreamName('WAITING FOR STREAM...');
+      setFileSize('0 MB');
+      setIsThreatActive(false);
+      setErrorMessage('');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleDragLeave = () => {
     setIsDragging(false);
   };
@@ -212,16 +232,17 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-[#1E293B] flex flex-col p-4 sm:p-6 font-sans">
-      
-      {/* TOP HEADER & DATA INGESTION ZONE */}
-      <header className="bg-white border border-[#E2E8F0] rounded-lg p-5 mb-6 shadow-sm relative overflow-hidden">
+    <div className={isDarkMode ? 'dark' : ''}>
+      <div className="min-h-screen bg-white dark:bg-[#0B1120] text-[#1E293B] dark:text-[#E2E8F0] flex flex-col p-4 sm:p-6 font-sans transition-colors duration-300">
+        
+        {/* TOP HEADER & DATA INGESTION ZONE */}
+        <header className="bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#334155] rounded-lg p-5 mb-6 shadow-sm relative overflow-hidden transition-colors duration-300">
         
         {/* Top visual brand bar */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-[#7D83FF]" />
 
         {/* Row 1: Brand Titles, System Alert Status, and Telemetry Summary */}
-        <div className="flex flex-col lg:flex-row items-center justify-between pb-4 border-b border-[#E2E8F0] gap-4">
+        <div className="flex flex-col lg:flex-row items-center justify-between pb-4 border-b border-[#E2E8F0] dark:border-[#334155] gap-4">
           
           {/* Logo & Main Title */}
           <div className="flex items-center space-x-3">
@@ -229,10 +250,10 @@ export default function App() {
               <Shield className="w-6 h-6 text-[#7D83FF]" />
             </div>
             <div>
-              <h1 className="text-base font-extrabold tracking-widest text-[#0F172A] leading-tight uppercase">
+              <h1 className="text-base font-extrabold tracking-widest text-[#0F172A] dark:text-[#F8FAFC] leading-tight uppercase">
                 Passive RF Early-Warning Prototype
               </h1>
-              <p className="font-mono text-[9px] text-[#64748B] mt-0.5 tracking-wider uppercase">
+              <p className="font-mono text-[9px] text-[#64748B] dark:text-[#94A3B8] mt-0.5 tracking-wider uppercase">
                 UAS-Related Emission Classifier // Tactical Intelligence Unit
               </p>
             </div>
@@ -242,17 +263,31 @@ export default function App() {
 
           {/* Core File Telemetry details */}
           <div className="flex items-center space-x-5 text-xs font-mono">
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-1.5 bg-[#F8FAFC] dark:bg-[#1E293B] hover:bg-[#E2E8F0] dark:hover:bg-[#334155] text-[#64748B] dark:text-[#94A3B8] rounded-md border border-[#E2E8F0] dark:border-[#334155] transition-colors"
+              title="Toggle Dark Mode"
+            >
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            <button 
+              onClick={handleReset}
+              className="px-3 py-1.5 bg-[#FF1744]/10 hover:bg-[#FF1744]/20 text-[#FF1744] rounded-md border border-[#FF1744]/20 text-[9px] font-bold tracking-wider uppercase transition-colors"
+              title="Wipe all data and reset the prototype"
+            >
+              Reset Testing Data
+            </button>
             <div className="flex flex-col text-right">
-              <span className="text-[#64748B] text-[8px] font-bold tracking-wider">ACTIVE SIGNAL STREAM</span>
-              <span className="text-[#0F172A] font-bold flex items-center justify-end mt-0.5">
+              <span className="text-[#64748B] dark:text-[#94A3B8] text-[8px] font-bold tracking-wider">ACTIVE SIGNAL STREAM</span>
+              <span className="text-[#0F172A] dark:text-[#F8FAFC] font-bold flex items-center justify-end mt-0.5">
                 <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isProcessing ? 'bg-[#7D83FF] animate-pulse' : 'bg-[#FF1744]'}`} />
                 {streamName}
               </span>
             </div>
 
-            <div className="flex flex-col text-right border-l border-[#E2E8F0] pl-4">
-              <span className="text-[#64748B] text-[8px] font-bold tracking-wider">TOTAL INGESTED SIZE</span>
-              <span className="text-[#0F172A] font-bold mt-0.5">{fileSize}</span>
+            <div className="flex flex-col text-right border-l border-[#E2E8F0] dark:border-[#334155] pl-4">
+              <span className="text-[#64748B] dark:text-[#94A3B8] text-[8px] font-bold tracking-wider">TOTAL INGESTED SIZE</span>
+              <span className="text-[#0F172A] dark:text-[#F8FAFC] font-bold mt-0.5">{fileSize}</span>
             </div>
           </div>
         </div>
@@ -269,7 +304,7 @@ export default function App() {
             className={`flex-1 min-h-[46px] px-4 py-2 border rounded-lg flex items-center justify-center space-x-3 cursor-pointer transition-all ${
               isDragging 
                 ? 'border-[#7D83FF] bg-[#7D83FF]/5 text-[#7D83FF]' 
-                : 'border-dashed border-[#CBD5E1] hover:border-[#7D83FF] bg-[#F8FAFC] text-[#64748B] hover:text-[#7D83FF]'
+                : 'border-dashed border-[#CBD5E1] hover:border-[#7D83FF] bg-[#F8FAFC] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#7D83FF]'
             }`}
           >
             <Upload className="w-4 h-4" />
@@ -295,7 +330,7 @@ export default function App() {
             {/* Folder Browse Trigger */}
             <button
               onClick={triggerFolderBrowse}
-              className="flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#0F172A] font-sans text-xs font-bold transition-all shadow-sm cursor-pointer w-full sm:w-auto"
+              className="flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] dark:bg-[#1E293B] hover:bg-[#F1F5F9] text-[#0F172A] dark:text-[#F8FAFC] font-sans text-xs font-bold transition-all shadow-sm cursor-pointer w-full sm:w-auto"
               title="Select folder to recursively scan and upload RF data"
             >
               <FolderOpen className="w-4 h-4 text-[#7D83FF]" />
@@ -318,7 +353,7 @@ export default function App() {
               <a
                 href="http://localhost:8000/api/report"
                 download="report.json"
-                className="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg font-sans text-xs font-extrabold transition-all border border-[#E2E8F0] bg-white text-[#334155] hover:bg-[#F8FAFC] shadow-sm hover:shadow-sm"
+                className="flex-1 sm:flex-none flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg font-sans text-xs font-extrabold transition-all border border-[#E2E8F0] dark:border-[#334155] bg-white dark:bg-[#0B1120] text-[#334155] dark:text-[#CBD5E1] hover:bg-[#F8FAFC] dark:hover:bg-[#334155] dark:bg-[#1E293B] shadow-sm hover:shadow-sm"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>DOWNLOAD REPORT.JSON</span>
@@ -380,8 +415,6 @@ export default function App() {
           <TuningControls 
             confidenceThreshold={confidenceThreshold}
             setConfidenceThreshold={setConfidenceThreshold}
-            smoothingWindow={smoothingWindow}
-            setSmoothingWindow={setSmoothingWindow}
           />
 
         </section>
@@ -389,7 +422,7 @@ export default function App() {
       </main>
 
       {/* FOOTER STATS */}
-      <footer className="mt-8 pt-4 border-t border-[#E2E8F0] flex items-center justify-between text-[#64748B] font-mono text-[9px]">
+      <footer className="mt-8 pt-4 border-t border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between text-[#64748B] dark:text-[#94A3B8] font-mono text-[9px]">
         <div>
           PROTOTYPE CONSOLE // PASSIVE CLASSIFICATION & ALERTING ONLY // SECURE SYSTEM LINK [ACTIVE]
         </div>
@@ -398,6 +431,7 @@ export default function App() {
         </div>
       </footer>
 
+    </div>
     </div>
   );
 }

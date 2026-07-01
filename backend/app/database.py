@@ -138,11 +138,11 @@ def calculate_metrics() -> dict:
     if total_events == 0:
         # Default starting values to avoid division by zero prior to logs
         default_stats = {
-            "pd": 0.93,
-            "far": 0.02,
-            "precision": 0.94,
-            "recall": 0.93,
-            "f1": 0.93,
+            "pd": 0.0,
+            "far": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
             "total_events": 0,
             "average_latency": 0.0,
             "processing_time": 0.0,
@@ -331,3 +331,27 @@ def log_alert(alert_data: dict, embedding: list = None, spectrogram_matrix: list
     calculate_metrics()
     
     return full_alert
+
+def clear_database():
+    """Wipes all historical alerts, metrics, and evidence images to reset the prototype."""
+    init_db()
+    conn = sqlite3.connect(config.DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM alerts')
+    conn.commit()
+    conn.close()
+    
+    if os.path.exists(config.JSON_PATH):
+        os.remove(config.JSON_PATH)
+        
+    if os.path.exists(config.REPORT_PATH):
+        os.remove(config.REPORT_PATH)
+        
+    # Clear images
+    for filename in os.listdir(config.EVIDENCE_DIR):
+        file_path = os.path.join(config.EVIDENCE_DIR, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            
+    # Regenerate empty default report
+    calculate_metrics()

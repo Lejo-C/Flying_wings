@@ -3,9 +3,7 @@ import { Sliders, AlertTriangle, Info, ToggleLeft, ToggleRight, Cpu } from 'luci
 
 export default function TuningControls({
   confidenceThreshold,
-  setConfidenceThreshold,
-  smoothingWindow,
-  setSmoothingWindow
+  setConfidenceThreshold
 }) {
   const [adaptiveNoise, setAdaptiveNoise] = useState(true);
 
@@ -34,12 +32,12 @@ export default function TuningControls({
   const status = getSensitivityStatus();
 
   return (
-    <div className="bg-white border border-[#E2E8F0] rounded-lg p-5 shadow-sm space-y-5">
+    <div className="bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#334155] rounded-lg p-5 shadow-sm space-y-5">
       
       {/* Title */}
-      <div className="flex items-center space-x-2 pb-3 border-b border-[#E2E8F0]">
+      <div className="flex items-center space-x-2 pb-3 border-b border-[#E2E8F0] dark:border-[#334155]">
         <Sliders className="w-4.5 h-4.5 text-[#7D83FF]" />
-        <span className="font-sans text-xs font-extrabold text-[#0F172A] tracking-wider uppercase">
+        <span className="font-sans text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-wider uppercase">
           Operator Threshold & Latency Controls
         </span>
       </div>
@@ -49,8 +47,8 @@ export default function TuningControls({
         {/* Slider */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-mono">
-            <span className="text-[#64748B] font-bold">Confidence Threshold Tuning</span>
-            <span className="text-[#0F172A] font-bold bg-[#F8FAFC] border border-[#CBD5E1] px-2 py-0.5 rounded">
+            <span className="text-[#64748B] dark:text-[#94A3B8] font-bold">Confidence Threshold Tuning</span>
+            <span className="text-[#0F172A] dark:text-[#F8FAFC] font-bold bg-[#F8FAFC] dark:bg-[#1E293B] border border-[#CBD5E1] px-2 py-0.5 rounded">
               {confidenceThreshold.toFixed(2)}
             </span>
           </div>
@@ -65,37 +63,11 @@ export default function TuningControls({
             className="w-full h-1.5 bg-[#E2E8F0] rounded-lg appearance-none cursor-pointer accent-[#7D83FF] focus:outline-none"
           />
           
-          <div className="flex justify-between font-mono text-[9px] text-[#64748B] px-0.5">
+          <div className="flex justify-between font-mono text-[9px] text-[#64748B] dark:text-[#94A3B8] px-0.5">
             <span>0.0 (SENSITIVE)</span>
             <span>0.5 (BALANCED)</span>
             <span>1.0 (CONSERVATIVE)</span>
           </div>
-        </div>
-
-        {/* Dropdown */}
-        <div className="space-y-1.5">
-          <label className="block text-[11px] font-mono text-[#64748B] font-bold">
-            Temporal Smoothing Buffer
-          </label>
-          <div className="relative">
-            <select
-              value={smoothingWindow}
-              onChange={(e) => setSmoothingWindow(parseInt(e.target.value))}
-              className="w-full bg-[#F8FAFC] border border-[#CBD5E1] hover:border-[#7D83FF] text-[#0F172A] font-sans text-xs rounded-lg py-2 px-3.5 focus:outline-none focus:border-[#7D83FF] transition cursor-pointer appearance-none shadow-sm"
-            >
-              <option value={1}>1 Frame (No Accumulation)</option>
-              <option value={3}>3 Frames (Fast Capture Lock)</option>
-              <option value={5}>5 Frames (Standard Accumulator)</option>
-              <option value={10}>10 Frames (High Smoothing - Slow Alert)</option>
-              <option value={20}>20 Frames (Deep Integration)</option>
-            </select>
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[#64748B] text-[8px]">
-              ▼
-            </div>
-          </div>
-          <p className="text-[9.5px] text-[#64748B] leading-tight font-sans">
-            Accumulates multi-frame decision matrices to reduce ambient signal fading interference.
-          </p>
         </div>
 
         {/* Status indicator banner */}
@@ -107,34 +79,6 @@ export default function TuningControls({
           )}
           <div>
             <span className="font-bold uppercase">Sensitivity Alert:</span> {status.text}
-          </div>
-        </div>
-
-        {/* Latency Compute Metrics */}
-        <div className="pt-4 border-t border-[#E2E8F0] space-y-2">
-          <span className="block font-mono text-[10px] text-[#64748B] font-bold tracking-wider uppercase">
-            Compute Baseline Metrics (Laptop CPU)
-          </span>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] p-2.5 rounded-lg">
-              <div className="flex justify-between items-center text-[#64748B] text-[9px] font-bold">
-                <span>MODEL INFERENCE</span>
-                <span className="bg-[#7D83FF]/15 text-[#7D83FF] text-[8px] px-1 rounded-sm">INT8</span>
-              </div>
-              <div className="mt-1 font-mono text-sm font-bold text-[#0F172A]">
-                &lt; 2.45 ms
-              </div>
-            </div>
-            
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] p-2.5 rounded-lg">
-              <div className="flex justify-between items-center text-[#64748B] text-[9px] font-bold">
-                <span>FEATURE MAPPING</span>
-                <span className="bg-[#7D83FF]/15 text-[#7D83FF] text-[8px] px-1 rounded-sm">FP16</span>
-              </div>
-              <div className="mt-1 font-mono text-sm font-bold text-[#0F172A]">
-                &lt; 142.5 ms
-              </div>
-            </div>
           </div>
         </div>
 

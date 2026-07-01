@@ -1,71 +1,77 @@
 # Anti-UAS RF Detection Prototype
 
-The **Anti-UAS RF Detection Prototype** is a sophisticated full-stack platform designed to ingest, process, and classify Radio Frequency (RF) signals to detect and track Unmanned Aerial Systems (UAS). The system processes raw RF IQ data, performs feature engineering via Short-Time Fourier Transforms (STFT), and runs machine learning inference using an ONNX-optimized MobileNetV3 architecture to accurately identify drone communication links.
+The **Anti-UAS RF Detection Prototype** is a highly optimized, full-stack edge computing platform designed to ingest, process, and classify Radio Frequency (RF) signals to detect and track Unmanned Aerial Systems (UAS). 
 
-It features a high-performance Python/FastAPI backend and a sleek, dynamic React dashboard for real-time monitoring and threat analysis.
+Engineered for strict competition requirements, the system processes both raw RF IQ data and visual Spectrogram Bundles, performs advanced signal feature engineering, and executes machine learning inference using a highly compressed ONNX architecture. The entire pipeline is designed to run in real-time natively on a **standard Laptop CPU Baseline**.
 
 ---
 
 ## 🏗️ Project Architecture & Workflow
 
-The system is broken into a frontend dashboard and a data-processing backend, working together in a seamless pipeline.
+The system is deployed as a containerized microservice architecture, utilizing a high-performance Python inference engine communicating with a dynamic, responsive React dashboard.
 
 ### End-to-End Processing Workflow
-1. **Data Ingestion**: RF signal data is uploaded (or read offline) via the API. The system dynamically parses multiple data types including raw binary IQ data (`cf32`, `ci16`, `ci8`), `SigMF` metadata structures, `.npy` binary arrays, CSVs, and even raw spectrogram images (`.png`, `.jpg`).
-2. **Signal Preprocessing**: Raw IQ data is normalized, DC offset is removed, and the signal is chunked using an overlapping sliding window.
-3. **Feature Engineering**: The signal is converted into a log-magnitude spectrogram using STFT, scaled, and transformed into a 3-channel 224x224 tensor tailored for the vision model.
-4. **ONNX Inference**: The batched tensors are fed into a customized double-headed PyTorch-to-ONNX model. The model simultaneously outputs class probabilities (UAS, Non-UAS, Unknown) and dense feature embeddings (1024-d).
-5. **Postprocessing & Temporal Filtering**: Sliding window results are passed through majority voting. A threat is only triggered if it surpasses the `MIN_CONSECUTIVE_WINDOWS` duration check and the `NOISE_FLOOR_THRESHOLD` energy check, ensuring robust false alarm rejection.
-6. **Logging & Analytics**: The alert is logged to a local SQLite database along with detailed latency metrics, dynamic onset/offset timestamps, and the generated spectrogram image. Re-occurrence cosine similarity is calculated against past threats.
+1. **Multi-Format Ingestion**: RF signal data is ingested via the API payload. The system supports live `.sigmf-data` binaries (and associated `.meta` files), `.npy` matrices, CSVs, and pre-rendered `.png`/`.jpg` Spectrogram Bundles.
+2. **Signal Preprocessing**: Raw IQ data undergoes DC offset removal, amplitude normalization, and is sliced into manageable overlapping temporal windows.
+3. **Feature Engineering**: The raw signal is transformed into a log-magnitude spectrogram using Fast Fourier Transforms (FFT/STFT), scaled, and stacked into a 3-channel 224x224 input tensor.
+4. **ONNX CPU Inference**: The tensors are passed into a customized PyTorch-to-ONNX MobileNetV3 model optimized specifically for `CPUExecutionProvider`. It simultaneously outputs classification probabilities and dense feature embeddings (1024-d).
+5. **Postprocessing & Temporal Logic**: Sliding window results undergo a stateful temporal majority-vote consensus to prevent transient noise from triggering false alarms.
+6. **Database Persistence**: The classified threat is logged to a local SQLite database, extracting bounding latencies and cross-referencing cosine similarities against past known threats.
 
 ---
 
-## 🛠️ Technologies Used
+## 🛠️ Comprehensive Technology Stack
 
-### Backend Engine
-- **Language**: Python 3
-- **API Framework**: FastAPI & Uvicorn
-- **Machine Learning**: PyTorch (for model training), ONNX Runtime (for optimized CPU/GPU inference)
-- **Signal Processing**: SciPy, NumPy, Pandas
-- **Image Processing**: Pillow (PIL)
-- **Database**: SQLite (for alerts and metrics tracking)
+### ⚡ Frontend (Dashboard & Visuals)
+- **Framework**: React 19 + Vite (Fast HMR & Optimized Bundling)
+- **Styling**: Tailwind CSS v4 (Utility-first responsive design)
+- **Icons & UI**: Lucide React
+- **Web Server**: Nginx (Alpine-based static serving in Docker)
 
-### Frontend Dashboard
-- **Framework**: React 19 + Vite
-- **Styling**: Tailwind CSS v4 for rapid, responsive UI design
-- **Icons**: Lucide React
-- **Visualization**: HTML Canvas / React components rendering the HUD and spectrogram evidence.
+### ⚙️ Backend (Inference & API)
+- **Core**: Python 3.10
+- **API Framework**: FastAPI + Uvicorn (Asynchronous ASGI server)
+- **Database**: SQLite3 (Local persistent alert timeline & metrics)
 
-### Deployment & DevOps
+### 🧠 Machine Learning & Mathematics
+- **Inference Engine**: ONNX Runtime (Forced CPU execution for hardware baseline compliance)
+- **Model Architecture**: MobileNetV3-Small (INT8 Quantized / PyTorch Export)
+- **Signal Processing**: SciPy (STFT, signal filtering) & NumPy (High-performance matrix operations)
+- **Image Processing**: Pillow (PIL) for generating dynamic spectrogram evidence plots
+
+### 🚀 DevOps & Deployment
 - **Containerization**: Docker & Docker Compose
-- **Environment**: Containerized multi-service deployment with automatic volume mapping for persistence.
+- **State Management**: Docker Volume Mapping (for database and AI model persistence)
 
 ---
 
-## 🚀 How to Start the Project
+## 🏁 How to Run the Project
 
-The easiest way to get the system up and running is using Docker Compose.
+The system is fully containerized for out-of-the-box deployment without the need for manual environment configurations or NVIDIA drivers.
 
 ### Prerequisites
-- [Docker](https://docs.docker.com/get-docker/) installed and running on your system.
-- [Docker Compose](https://docs.docker.com/compose/install/)
+- [Docker Desktop](https://docs.docker.com/get-docker/) running on your host machine.
 
-### Running via Docker (Recommended)
-1. Clone the repository and navigate to the project root:
+### Deployment (Docker Compose)
+1. Navigate to the project root directory:
    ```bash
    cd Flying_wings
    ```
-2. Start the services using Docker Compose:
+2. Build and start the containers in detached mode:
    ```bash
-   docker-compose up --build
+   docker-compose up -d --build
    ```
-3. Access the applications:
-   - **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
-   - **Backend API (Swagger UI)**: [http://localhost:8000/docs](http://localhost:8000/docs)
+3. Access the platforms:
+   - **Main UI Dashboard**: [http://localhost](http://localhost) (Served on port 80)
+   - **Backend API (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Running Locally (Without Docker)
+*(Note: The UI actively streams data from the backend via WebSockets and HTTP endpoints. If the backend is restarting, the UI will automatically reconnect once available).*
 
-If you prefer to run the system natively:
+---
+
+## 💻 Manual Developer Testing (Without Docker)
+
+If you are modifying the Python pipeline or React components directly and wish to bypass Docker:
 
 **1. Start the Backend:**
 ```bash
@@ -81,42 +87,15 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 cd frontend
 npm install
 npm run dev
+# Vite will serve the dev environment on http://localhost:5173
 ```
 
 ---
 
-## 💻 Offline Tools & CLI Scripts
-
-The backend is equipped with standalone CLI scripts for offline dataset processing and evaluation. 
-
-### 1. Offline Batch Processing (CLI)
-You can recursively process entire directories of raw RF captures offline without running the HTTP API. This simulates field-edge ingestion and populates your SQLite database with threats.
-```bash
-python backend/app/cli.py /path/to/dataset/directory
-```
-*Note: Ensure your Python environment is activated and dependencies are installed.*
-
-### 2. Robustness Testing Suite
-Evaluate the ONNX model's performance by injecting variable Signal-to-Noise Ratio (SNR) levels and simulated RF interference into base signals. 
-```bash
-python backend/app/robustness_tester.py
-```
-This script will output a detailed analysis report to `backend/data/robustness_report.json` evaluating the model's prediction latency and confidence drops under harsh conditions.
-
----
-
-## 🧠 Model Training
-
-The `DoubleHeadedMobileNet` architecture is defined in PyTorch. The model is trained on pre-processed RF feature datasets and exported to the ONNX standard.
-
-To re-train the model or regenerate the ONNX artifact:
-```bash
-python backend/training/train.py
-```
-This script will:
-1. Initialize the dataset loaders.
-2. Train the MobileNetV3-Small base model.
-3. Replace the classification head.
-4. Export the `competition_model.onnx` file with both probability and embedding output channels.
-
-Move the generated `competition_model.onnx` into `backend/app/model/` and restart the backend to deploy the new weights.
+## 🎯 Competition Compliance Checklist
+- [x] **Input Support**: Supports both native IQ data and Spectrogram Image bundles.
+- [x] **Latency Requirements**: Optimized mathematical FFT pipeline processes segments well under the 2.0-second threshold.
+- [x] **Classification**: Outputs Ternary states (UAS-like, Non-UAS, Unknown).
+- [x] **Hardware Baseline**: Explicitly hardcoded to run perfectly on standard Laptop CPUs (No GPUs required).
+- [x] **Threat Logging**: Automatically saves threats to a searchable database library.
+- [x] **Operator Tuning**: Includes live Confidence Threshold UI controls mapped directly to data visualization logic.
